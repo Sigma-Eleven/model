@@ -155,18 +155,18 @@ struct ContinueStmt : Stmt
 //break语句
 struct BreakStmt : Stmt
 {
-    vector<StmtPtr> body; // 跳出时执行的语句块
+    vector<StmtPtr> body; 
     BreakStmt(vector<StmtPtr> b, int l);
 };
 
 //return语句
 struct ReturnStmt : Stmt
 {
-    optional<ExprPtr> value; // 可选的返回值
+    optional<ExprPtr> value; 
     ReturnStmt(optional<ExprPtr> v, int l);
 };
 
-// 对象语句(类名 + 可选的对象ID + 语句块)
+// 对象语句
 struct ObjStmt : Stmt
 {
     string className;
@@ -178,13 +178,6 @@ struct ObjStmt : Stmt
 //程序(根节点)
 struct Program : ASTNode
 {
-    vector<StmtPtr> statements;
-    Program(vector<StmtPtr> stmts, int l);
+    std::vector<StmtPtr> stmts;
+    Program();
 };
-
-
-
-
-
-
-
