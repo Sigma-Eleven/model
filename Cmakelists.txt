@@ -1,0 +1,23 @@
+
+```cmake
+cmake_minimum_required(VERSION 3.10)
+
+project(LexerProject)
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_executable(lexer_app
+    lexer.cpp
+)
+
+set_target_properties(lexer_app PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+
+if(MSVC)
+    target_compile_options(lexer_app PRIVATE /W4)
+else()
+    target_compile_options(lexer_app PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+```
