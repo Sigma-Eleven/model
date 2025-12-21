@@ -1,0 +1,45 @@
+game WerewolfGame {
+    enum {
+        werewolf,
+        villager,
+        seer,
+        witch
+    }
+
+    num day_count = 1
+    num night_count = 0
+    bool game_over = false
+
+    action kill(target) {
+        println("Werewolf selected target: " + target)
+    }
+
+    action vote(target) {
+        println("Villager voted for: " + target)
+    }
+
+    action check(target) {
+        println("Seer checked: " + target)
+    }
+
+    phase night_phase {
+        step "werewolf_action" for werewolf with kill if (!game_over) {
+        }
+
+        step "seer_action" for seer with check if (!game_over) {
+        }
+    }
+
+    phase day_phase {
+        step "discussion" for werewolf, villager, seer, witch if (!game_over) {
+        }
+
+        step "voting" for werewolf, villager, seer, witch with vote if (!game_over) {
+        }
+    }
+
+    setup {
+        println("Werewolf game started!")
+        println("Roles assigned")
+    }
+}

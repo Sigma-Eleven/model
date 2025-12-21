@@ -1,0 +1,8 @@
+game SimpleGame {
+    enum {
+        player1,
+        player2
+    }
+
+    num score = 100
+}
