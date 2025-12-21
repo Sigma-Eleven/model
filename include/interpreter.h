@@ -147,40 +147,17 @@ public:
     }
 
     // 核心:导出极简JSON（供Python读取）
-    std::string export_ast_to_json() {
-        return "{\"game_name\":\"" + env_.game_name + "\","
-               "\"roles_count\":" + std::to_string(env_.roles.size()) + ","
-               "\"has_error\":" + (env_.has_error ? "true" : "false") + "}";
-    }
+    std::string export_ast_to_json();
 
 private:
     WolfParseResult parse_result_; // 解析结果（）
     RuntimeEnv env_;               // 运行时环境（）
 
     // 核心:执行单个阶段（仅保留必要逻辑）
-    void execute_phase(const WolfParseResult::PhaseDef& phase) {
-        std::cout << "\n[阶段] " << phase.name << std::endl;
-        // 执行阶段下所有步骤
-        for (const auto& step : phase.steps) {
-            execute_step(step);
-            if (env_.has_error) break;
-        }
-    }
+    void execute_phase(const WolfParseResult::PhaseDef& phase);
 
     // 核心:执行单个步骤（仅保留必要逻辑）
-    void execute_step(const WolfParseResult::PhaseDef::StepDef& step) {
-        std::cout << "  [步骤] " << step.name << std::endl;
-        
-        // 校验关联动作存在性（核心）
-        if (!step.actionName.empty()) {
-            try {
-                env_.get_action(step.actionName);
-                std::cout << "    执行动作:" << step.actionName << std::endl;
-            } catch (const std::exception& e) {
-                env_.set_error("步骤 [" + step.name + "]:" + e.what());
-            }
-        }
-    }
+    void execute_step(const WolfParseResult::PhaseDef::StepDef& step);
 };
 
 #endif // INTERPRETER_H
