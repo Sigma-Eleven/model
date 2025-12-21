@@ -5,7 +5,6 @@
 #include <vector>
 #include <map>
 
-// Wolf语言解析结果（纯结构）
 struct WolfParseResult
 {
     std::string gameName;
@@ -15,7 +14,6 @@ struct WolfParseResult
     struct Param
     {
         std::string name;
-        std::string type; // 类型名（如果有）
     };
 
     // 动作定义结构
@@ -23,7 +21,7 @@ struct WolfParseResult
     {
         std::string name;
         std::vector<Param> params;
-        std::vector<std::string> bodyLines; // 原始DSL代码
+        std::vector<std::string> bodyLines; 
         int line;
     };
 
@@ -31,8 +29,8 @@ struct WolfParseResult
     struct VariableDef
     {
         std::string name;
-        std::string type_keyword; // "num", "str", "bool"
-        std::string value;        // 原始表达式
+        std::string type_keyword; 
+        std::string value;       
         int line;
     };
 
@@ -44,8 +42,8 @@ struct WolfParseResult
             std::string name;
             std::vector<std::string> rolesInvolved;
             std::string actionName;
-            std::string condition;              // 原始条件表达式
-            std::vector<std::string> bodyLines; // 步骤体
+            std::string condition;              
+            std::vector<std::string> bodyLines; 
             int line;
         };
 
@@ -59,14 +57,14 @@ struct WolfParseResult
     {
         std::string name;
         std::vector<Param> params;
-        std::vector<std::string> bodyLines; // 原始代码
+        std::vector<std::string> bodyLines; 
         int line;
     };
 
     // setup定义
     struct SetupDef
     {
-        std::vector<std::string> bodyLines; // 原始代码
+        std::vector<std::string> bodyLines; 
         int line;
     };
 
@@ -77,7 +75,7 @@ struct WolfParseResult
     std::vector<MethodDef> methods;
     SetupDef setup;
 
-    // 错误标志
+    // 错误信息
     bool hasError = false;
     std::string errorMessage;
 
@@ -91,7 +89,6 @@ private:
     Token current;
     WolfParseResult result;
 
-    // 解析上下文
     enum class ParseContext
     {
         TOP_LEVEL,
@@ -105,7 +102,6 @@ private:
     ParseContext currentContext = ParseContext::TOP_LEVEL;
     bool inGameBlock = false;
 
-    // 基础工具方法
     Token peek() { return current; }
     Token consume();
     bool match(TokenKind kind);
@@ -131,9 +127,9 @@ private:
     void parseForStatement();
     void parseExpressionStatement();
 
-    // 辅助解析方法
+    // 解析方法
     std::vector<WolfParseResult::Param> parseParamList();
-    std::string parseType(); // 简化版类型解析
+    std::string parseType(); 
     std::string parseExpression();
     std::vector<std::string> parseCodeBlock();
     std::vector<std::string> parseStatementList();

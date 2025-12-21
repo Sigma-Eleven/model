@@ -122,7 +122,6 @@ void WolfParser::parseGameDefinition()
         return;
     }
 
-    int line = current.line;
     expectIdent("game", "Expected 'game'");
 
     if (current.kind != TokenKind::IDENT)
@@ -175,8 +174,7 @@ void WolfParser::parseInGameBlock()
         {
             parseSetupDefinition();
         }
-        else if (keyword == "num" || keyword == "str" || keyword == "bool" ||
-                 keyword == "obj")
+        else if (keyword == "num" || keyword == "str" || keyword == "bool" || keyword == "obj")
         {
             parseVariableDefinition();
         }
@@ -209,7 +207,6 @@ void WolfParser::parseEnumDefinition()
 {
     checkInGameContext("enum");
 
-    int line = current.line;
     expectIdent("enum", "Expected 'enum'");
 
     expect(TokenKind::LBRACE, "Expected '{' after enum");
@@ -280,9 +277,6 @@ std::vector<WolfParseResult::Param> WolfParser::parseParamList()
                 WolfParseResult::Param param;
                 param.name = current.text;
                 consume();
-
-                // 简化版：不支持类型注解（因为没有COLON token）
-                param.type = "Any";
 
                 params.push_back(param);
 
@@ -512,8 +506,6 @@ void WolfParser::parseSetupDefinition()
 void WolfParser::parseIfStatement()
 {
     checkNotInTopLevel("if statement");
-
-    int line = current.line;
     expectIdent("if", "Expected 'if'");
     expect(TokenKind::LPAREN, "Expected '(' after 'if'");
 
@@ -607,15 +599,14 @@ std::string WolfParser::parseExpression()
 
 std::string WolfParser::parseType()
 {
-    // 简化版：由于没有COLON token，不支持类型注解
-    // 如果lexer支持，可以扩展
     if (current.kind == TokenKind::IDENT)
     {
         std::string type = current.text;
         consume();
         return type;
     }
-    return "Any";
+    error("Expected type name");
+    return "";
 }
 
 std::vector<std::string> WolfParser::parseCodeBlock()
@@ -636,7 +627,6 @@ std::vector<std::string> WolfParser::parseStatementList()
         }
 
         std::stringstream line;
-        int startLine = current.line;
 
         while (current.kind != TokenKind::SEMI &&
                current.kind != TokenKind::RBRACE &&
