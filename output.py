@@ -4,19 +4,19 @@ import time
 ROLES = ["werewolf", "villager", "seer", "witch"]
 
 # Global Variables
-day_count = 1 
-game_over = false 
-night_count = 0 
+day_count = 1
+game_over = False
+night_count = 0
 
 # Actions
 def action_kill(target):
-    print( Werewolf selected target:  + target )
+    print(f"Werewolf selected target: {target}")
 
 def action_vote(target):
-    print( Villager voted for:  + target )
+    print(f"Villager voted for: {target}")
 
 def action_check(target):
-    print( Seer checked:  + target )
+    print(f"Seer checked: {target}")
 
 class GameFlow:
     def __init__(self):
@@ -25,31 +25,32 @@ class GameFlow:
     def phase_night_phase(self):
         print(f"--- Phase: night_phase ---")
         # Step: werewolf_action
-        if ! game_over :
+        if not game_over:
             print(f"Executing step: werewolf_action")
-            action_kill()
+            action_kill(None)
             pass
         # Step: seer_action
-        if ! game_over :
+        if not game_over:
             print(f"Executing step: seer_action")
-            action_check()
+            action_check(None)
             pass
 
     def phase_day_phase(self):
         print(f"--- Phase: day_phase ---")
         # Step: discussion
-        if ! game_over :
+        if not game_over:
             print(f"Executing step: discussion")
             pass
         # Step: voting
-        if ! game_over :
+        if not game_over:
             print(f"Executing step: voting")
-            action_vote()
+            action_vote(None)
             pass
 
 def run_game():
     print("=== Starting WerewolfGame ===")
-    print( Werewolf game started! ) println ( Roles assigned )
+    print("Werewolf game started!")
+    print("Roles assigned")
     flow = GameFlow()
     flow.phase_night_phase()
     flow.phase_day_phase()

@@ -4,7 +4,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
-#include "parser.h"
+#include "../include/parser.h"
 #include "interpreter.h"
 #include "py_binding.h"
 #include "generator.h" // 新增生成器头文件
