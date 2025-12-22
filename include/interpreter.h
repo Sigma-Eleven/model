@@ -1,5 +1,4 @@
-#ifndef INTERPRETER_H
-#define INTERPRETER_H
+#pragma once
 
 // 引入项目头文件
 #include "parser.h"
@@ -16,31 +15,39 @@
 #include <cstdlib>
 
 // -------------------------- 核心:DSL基础类型定义（匹配type_keyword） --------------------------
-enum class ValueType {
-    NUMBER,  // 对应 "num"
-    STRING,  // 对应 "str"
-    BOOL,    // 对应 "bool"
-    NONE     // 无值（简化:暂删OBJECT）
+enum class ValueType
+{
+    NUMBER, // 对应 "num"
+    STRING, // 对应 "str"
+    BOOL,   // 对应 "bool"
+    NONE    // 无值（简化:暂删OBJECT）
 };
 
 // 核心:运行时值（保留变量存储必要逻辑）
-struct RuntimeValue {
+struct RuntimeValue
+{
     ValueType type;
     std::variant<int, std::string, bool> value;
 
     // 便捷构造函数（保留必要类型）
     static RuntimeValue Number(int val) { return {ValueType::NUMBER, val}; }
-    static RuntimeValue String(const std::string& val) { return {ValueType::STRING, val}; }
+    static RuntimeValue String(const std::string &val) { return {ValueType::STRING, val}; }
     static RuntimeValue Bool(bool val) { return {ValueType::BOOL, val}; }
     static RuntimeValue None() { return {ValueType::NONE, 0}; }
 
     // 核心:从type_keyword+原始值转换为RuntimeValue
-    static RuntimeValue fromString(const std::string& type_keyword, const std::string& value_str) {
-        if (type_keyword == "num") {
+    static RuntimeValue fromString(const std::string &type_keyword, const std::string &value_str)
+    {
+        if (type_keyword == "num")
+        {
             return Number(std::atoi(value_str.c_str()));
-        } else if (type_keyword == "str") {
+        }
+        else if (type_keyword == "str")
+        {
             return String(value_str);
-        } else if (type_keyword == "bool") {
+        }
+        else if (type_keyword == "bool")
+        {
             return Bool(value_str == "true" || value_str == "TRUE");
         }
         return None();
@@ -48,7 +55,8 @@ struct RuntimeValue {
 };
 
 // -------------------------- 核心:运行时环境（保留变量/动作存储） --------------------------
-class RuntimeEnv {
+class RuntimeEnv
+{
 public:
     // 全局变量（适配WolfParseResult::variables<map>）
     std::unordered_map<std::string, RuntimeValue> global_vars;
@@ -63,74 +71,91 @@ public:
     std::string error_msg;
 
     // 核心:设置全局变量
-    void set_var(const std::string& name, const RuntimeValue& val) {
+    void set_var(const std::string &name, const RuntimeValue &val)
+    {
         global_vars[name] = val;
     }
 
     // 核心:获取全局变量（无局部变量，简化）
-    RuntimeValue get_var(const std::string& name) {
-        if (global_vars.find(name) != global_vars.end()) {
+    RuntimeValue get_var(const std::string &name)
+    {
+        if (global_vars.find(name) != global_vars.end())
+        {
             return global_vars[name];
         }
         throw std::runtime_error("未定义的变量:" + name);
     }
 
     // 核心:注册动作
-    void register_action(const WolfParseResult::ActionDef& action) {
+    void register_action(const WolfParseResult::ActionDef &action)
+    {
         actions[action.name] = action;
     }
 
     // 核心:获取动作（校验存在性）
-    WolfParseResult::ActionDef get_action(const std::string& action_name) {
-        if (actions.find(action_name) == actions.end()) {
+    WolfParseResult::ActionDef get_action(const std::string &action_name)
+    {
+        if (actions.find(action_name) == actions.end())
+        {
             throw std::runtime_error("未定义的动作:" + action_name);
         }
         return actions[action_name];
     }
 
     // 核心:标记错误
-    void set_error(const std::string& msg) {
+    void set_error(const std::string &msg)
+    {
         has_error = true;
         error_msg = msg;
     }
 };
 
 // -------------------------- 核心:解释器类(保留执行逻辑） --------------------------
-class WolfDSLInterpreter {
+class WolfDSLInterpreter
+{
 public:
     // 构造函数:初始化的解析结果
-    explicit WolfDSLInterpreter(const WolfParseResult& parse_result) 
-        : parse_result_(parse_result), env_() {
-        
+    explicit WolfDSLInterpreter(const WolfParseResult &parse_result)
+        : parse_result_(parse_result), env_()
+    {
+
         // 1. 初始化游戏基础信息
         env_.game_name = parse_result.gameName;
         env_.roles = parse_result.roles;
 
         // 2. 注册所有动作
-        for (const auto& action : parse_result.actions) {
+        for (const auto &action : parse_result.actions)
+        {
             env_.register_action(action);
         }
 
         // 3. 初始化全局变量（适配type_keyword）
-        for (const auto& [var_name, var_def] : parse_result.variables) {
-            try {
+        for (const auto &[var_name, var_def] : parse_result.variables)
+        {
+            try
+            {
                 RuntimeValue val = RuntimeValue::fromString(var_def.type_keyword, var_def.value);
                 env_.set_var(var_name, val);
-            } catch (const std::exception& e) {
+            }
+            catch (const std::exception &e)
+            {
                 env_.set_error("变量初始化失败 [" + var_name + "]:" + e.what());
             }
         }
 
         // 4. 检查解析阶段错误
-        if (parse_result.hasError) {
+        if (parse_result.hasError)
+        {
             env_.set_error("解析错误:" + parse_result.errorMessage);
         }
     }
 
     // 核心入口:仅执行阶段/步骤核心逻辑
-    void run() {
+    void run()
+    {
         // 有错误直接终止
-        if (env_.has_error) {
+        if (env_.has_error)
+        {
             std::cerr << "DSL执行终止:" << env_.error_msg << std::endl;
             return;
         }
@@ -140,9 +165,11 @@ public:
         std::cout << "角色列表:" << env_.roles.size() << "个" << std::endl;
 
         // 遍历执行所有阶段
-        for (const auto& phase : parse_result_.phases) {
+        for (const auto &phase : parse_result_.phases)
+        {
             execute_phase(phase);
-            if (env_.has_error) break; // 错误终止
+            if (env_.has_error)
+                break; // 错误终止
         }
     }
 
@@ -154,10 +181,8 @@ private:
     RuntimeEnv env_;               // 运行时环境（）
 
     // 核心:执行单个阶段（仅保留必要逻辑）
-    void execute_phase(const WolfParseResult::PhaseDef& phase);
+    void execute_phase(const WolfParseResult::PhaseDef &phase);
 
     // 核心:执行单个步骤（仅保留必要逻辑）
-    void execute_step(const WolfParseResult::PhaseDef::StepDef& step);
+    void execute_step(const WolfParseResult::PhaseDef::StepDef &step);
 };
-
-#endif // INTERPRETER_H

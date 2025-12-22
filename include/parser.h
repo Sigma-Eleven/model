@@ -106,6 +106,7 @@ private:
     Token consume();
     bool match(TokenKind kind);
     bool matchIdent(const std::string &ident);
+    bool isKeyword(const std::string &text);
     void expect(TokenKind kind, const std::string &msg);
     void expectIdent(const std::string &ident, const std::string &msg);
     void error(const std::string &msg);
