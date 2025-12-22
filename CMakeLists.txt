@@ -16,11 +16,13 @@ add_executable(wolf_translator
 )
 
 set_target_properties(wolf_translator PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}"
 )
 
 if(MSVC)
-    target_compile_options(wolf_translator PRIVATE /W4)
+    target_compile_options(wolf_translator PRIVATE /W4 /utf-8)
 else()
     target_compile_options(wolf_translator PRIVATE -Wall -Wextra -Wpedantic)
 endif()

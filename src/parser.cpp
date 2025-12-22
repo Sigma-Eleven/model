@@ -1,7 +1,7 @@
+#include "parser.h"
 #include <iostream>
 #include <sstream>
 #include <algorithm>
-#include "../include/parser.h"
 
 WolfParser::WolfParser(std::string src) : lexer(std::move(src))
 {
@@ -150,6 +150,8 @@ void WolfParser::parseGameDefinition()
 
 void WolfParser::parseInGameBlock()
 {
+    Token before = current;
+
     if (current.kind == TokenKind::IDENT)
     {
         std::string keyword = current.text;
@@ -200,6 +202,12 @@ void WolfParser::parseInGameBlock()
     else
     {
         parseExpressionStatement();
+    }
+
+    // 强制消耗一个Token以防死循环
+    if (current.kind == before.kind && current.line == before.line && current.text == before.text && current.kind != TokenKind::END)
+    {
+        consume();
     }
 }
 
@@ -261,6 +269,8 @@ void WolfParser::parseActionDefinition()
 
     action.bodyLines = parseCodeBlock();
 
+    expect(TokenKind::RBRACE, "Expected '}' after action body");
+
     result.actions.push_back(action);
 }
 
@@ -315,6 +325,8 @@ void WolfParser::parsePhaseDefinition()
 
     expect(TokenKind::LBRACE, "Expected '{' after phase name");
 
+    result.phases.push_back(phase);
+
     currentContext = ParseContext::IN_PHASE;
 
     while (current.kind != TokenKind::RBRACE && current.kind != TokenKind::END)
@@ -343,7 +355,6 @@ void WolfParser::parsePhaseDefinition()
 
     currentContext = ParseContext::IN_GAME;
 
-    result.phases.push_back(phase);
     expect(TokenKind::RBRACE, "Expected '}' to close phase");
 }
 
@@ -370,23 +381,18 @@ void WolfParser::parseStepDefinition()
 
     if (matchIdent("for"))
     {
-        while (current.kind != TokenKind::IDENT || current.text != "with")
+        while (current.kind == TokenKind::IDENT)
         {
-            if (current.kind == TokenKind::IDENT)
+            // 如果遇到 with, if 或 {，说明角色列表结束了
+            if (current.text == "with" || current.text == "if")
             {
-                step.rolesInvolved.push_back(current.text);
-                consume();
-
-                if (match(TokenKind::COMMA))
-                {
-                    continue;
-                }
-                else if (current.kind == TokenKind::IDENT && current.text == "with")
-                {
-                    break;
-                }
+                break;
             }
-            else
+
+            step.rolesInvolved.push_back(current.text);
+            consume();
+
+            if (!match(TokenKind::COMMA))
             {
                 break;
             }
@@ -407,9 +413,7 @@ void WolfParser::parseStepDefinition()
     if (matchIdent("if"))
     {
         expect(TokenKind::LPAREN, "Expected '(' after 'if'");
-
         step.condition = parseExpression();
-
         expect(TokenKind::RPAREN, "Expected ')' after condition");
     }
 
@@ -434,27 +438,43 @@ void WolfParser::parseVariableDefinition()
     var.type_keyword = current.text;
     consume();
 
-    expect(TokenKind::LPAREN, "Expected '(' after type");
-
-    if (current.kind != TokenKind::IDENT)
+    // 支持 num(var) 和 num var 两种写法
+    if (match(TokenKind::LPAREN))
     {
-        error("Expected variable name");
-        return;
+        if (current.kind != TokenKind::IDENT)
+        {
+            error("Expected variable name");
+            return;
+        }
+
+        var.name = current.text;
+        consume();
+
+        expect(TokenKind::RPAREN, "Expected ')' after variable name");
     }
+    else
+    {
+        if (current.kind != TokenKind::IDENT)
+        {
+            error("Expected variable name");
+            return;
+        }
 
-    var.name = current.text;
-    consume();
-
-    expect(TokenKind::RPAREN, "Expected ')' after variable name");
+        var.name = current.text;
+        consume();
+    }
 
     if (match(TokenKind::ASSIGN))
     {
         var.value = parseExpression();
     }
 
-    result.variables[var.name] = var;
+    if (current.kind == TokenKind::SEMI)
+    {
+        consume();
+    }
 
-    match(TokenKind::SEMI);
+    result.variables[var.name] = var;
 }
 
 void WolfParser::parseMethodDefinition()
@@ -485,6 +505,8 @@ void WolfParser::parseMethodDefinition()
 
     method.bodyLines = parseCodeBlock();
 
+    expect(TokenKind::RBRACE, "Expected '}' after method body");
+
     result.methods.push_back(method);
 }
 
@@ -499,6 +521,8 @@ void WolfParser::parseSetupDefinition()
     expect(TokenKind::LBRACE, "Expected '{' after setup");
 
     setup.bodyLines = parseCodeBlock();
+
+    expect(TokenKind::RBRACE, "Expected '}' after setup body");
 
     result.setup = setup;
 }
@@ -580,6 +604,16 @@ void WolfParser::parseExpressionStatement()
     }
 }
 
+bool WolfParser::isKeyword(const std::string &text)
+{
+    // 只有那些代表“新块开始”的关键字才应该强制截断表达式
+    // 像 for, if, return 等可能出现在表达式或语句中间的关键字不应在此列
+    static const std::vector<std::string> breakKeywords = {
+        "game", "enum", "action", "phase", "step", "def", "setup",
+        "num", "str", "bool", "obj"};
+    return std::find(breakKeywords.begin(), breakKeywords.end(), text) != breakKeywords.end();
+}
+
 std::string WolfParser::parseExpression()
 {
     std::stringstream expr;
@@ -590,6 +624,12 @@ std::string WolfParser::parseExpression()
            current.kind != TokenKind::COMMA &&
            current.kind != TokenKind::END)
     {
+        // 如果遇到下一个关键字且不是在括号内，则停止解析表达式
+        if (current.kind == TokenKind::IDENT && isKeyword(current.text))
+        {
+            break;
+        }
+
         expr << current.text << " ";
         consume();
     }
@@ -632,6 +672,16 @@ std::vector<std::string> WolfParser::parseStatementList()
                current.kind != TokenKind::RBRACE &&
                current.kind != TokenKind::END)
         {
+            // 如果遇到下一个定义的关键字，停止当前行解析
+            if (current.kind == TokenKind::IDENT && isKeyword(current.text))
+            {
+                // 排除掉 if/for 等可以在语句块内部出现的关键字
+                if (current.text != "if" && current.text != "for" && current.text != "return")
+                {
+                    break;
+                }
+            }
+
             line << current.text << " ";
             consume();
         }
