@@ -5,15 +5,14 @@ project(WolfTranslator)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# 包含头文件目录
 include_directories(include)
 
-add_executable(wolf_translator
-    src/main.cpp
-    src/lexer.cpp
-    src/parser.cpp
-    src/interpreter.cpp
-    src/py_binding.cpp
-)
+# 查找源文件
+file(GLOB SOURCES "src/*.cpp")
+
+# 创建可执行文件
+add_executable(wolf_translator ${SOURCES})
 
 set_target_properties(wolf_translator PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"

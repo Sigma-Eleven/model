@@ -6,7 +6,8 @@
 #endif
 #include "parser.h"
 #include "interpreter.h"
-#include "py_binding.h" // 复用解析和执行逻辑
+#include "py_binding.h"
+#include "generator.h" // 新增生成器头文件
 
 // 读取文件内容到字符串
 std::string read_file(const std::string &path)
@@ -25,32 +26,56 @@ int main(int argc, char *argv[])
 #ifdef _WIN32
     SetConsoleOutputCP(65001); // 设置控制台为UTF-8编码
 #endif
-    if (argc != 2)
+    if (argc < 2)
     {
-        std::cerr << "用法: " << argv[0] << " <dsl_file_path>" << std::endl;
+        std::cerr << "用法: " << argv[0] << " <dsl_file_path> [output_py_path]" << std::endl;
         return 1;
     }
 
     std::string dsl_path = argv[1];
+    std::string py_path = (argc >= 3) ? argv[2] : "";
+
     try
     {
-        // 1. 解析DSL并输出核心信息
-        std::cout << "=== 解析DSL文件: " << dsl_path << " ===" << std::endl;
-        std::cout.flush();
+        // 1. 解析DSL
+        std::string source = read_file(dsl_path);
+        WolfParser parser(source);
+        WolfParseResult result = parser.parse();
 
-        std::string json_info = parse_dsl_to_json(dsl_path);
-        std::cout << "核心信息: " << json_info << std::endl;
-        std::cout.flush();
+        if (result.hasError)
+        {
+            std::cerr << "解析错误: " << result.errorMessage << std::endl;
+            return 1;
+        }
 
-        // 2. 执行DSL并输出日志
-        std::cout << "\n=== 执行DSL流程 ===" << std::endl;
-        std::cout.flush();
+        // 2. 如果指定了输出路径，则生成 Python 文件
+        if (!py_path.empty())
+        {
+            std::cout << "=== 正在翻译为 Python: " << py_path << " ===" << std::endl;
+            PythonGenerator generator(result);
+            std::string py_code = generator.generate();
 
-        std::string exec_log = run_dsl(dsl_path);
-        std::cout << exec_log << std::endl;
-        std::cout.flush();
+            std::ofstream out(py_path);
+            if (!out.is_open())
+            {
+                throw std::runtime_error("无法创建输出文件: " + py_path);
+            }
+            out << py_code;
+            out.close();
+            std::cout << "翻译完成！" << std::endl;
+        }
+        else
+        {
+            // 默认执行逻辑
+            std::cout << "=== 解析DSL文件: " << dsl_path << " ===" << std::endl;
+            WolfDSLInterpreter interpreter(result);
+            std::cout << "核心信息: " << interpreter.export_ast_to_json() << std::endl;
 
-        std::cout << "\n=== 执行完成 ===" << std::endl;
+            std::cout << "\n=== 执行DSL流程 ===" << std::endl;
+            interpreter.run();
+            std::cout << "\n=== 执行完成 ===" << std::endl;
+        }
+
         return 0;
     }
     catch (const std::exception &e)
