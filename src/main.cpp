@@ -9,7 +9,6 @@
 #include "py_binding.h"
 #include "generator.h"
 
-// 读取文件内容到字符串
 std::string read_file(const std::string &path)
 {
     std::ifstream file(path);
@@ -24,7 +23,7 @@ std::string read_file(const std::string &path)
 int main(int argc, char *argv[])
 {
 #ifdef _WIN32
-    SetConsoleOutputCP(65001); // 设置控制台为UTF-8编码
+    SetConsoleOutputCP(65001); 
 #endif
     if (argc < 2)
     {
@@ -37,7 +36,6 @@ int main(int argc, char *argv[])
 
     try
     {
-        // 1. 解析DSL
         std::string source = read_file(dsl_path);
 
         WolfParser parser(source);
@@ -49,7 +47,6 @@ int main(int argc, char *argv[])
             return 1;
         }
 
-        // 2. 如果指定了输出路径，则生成 Python 文件
         if (!py_path.empty())
         {
             std::cout << "=== 正在翻译为 Python: " << py_path << " ===" << std::endl;
