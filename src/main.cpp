@@ -6,7 +6,6 @@
 #endif
 #include "../include/parser.h"
 #include "interpreter.h"
-#include "py_binding.h"
 #include "generator.h"
 
 std::string read_file(const std::string &path)
