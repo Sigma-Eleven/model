@@ -71,11 +71,7 @@ class WerewolfGame(Game):
         if test_var > 5:
             print("test_var is greater than 5")
         for i in range(3):
-            if i == 1:
-                pass
             print(f"Loop iteration:  {i}")
-            if i == 2:
-                pass
         print("Roles assigned")
 
     def action_kill(self, target):

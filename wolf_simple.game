@@ -1,8 +1,35 @@
-game SimpleGame {
+game WerewolfSimple {
     enum {
-        player1,
-        player2
+        werewolf,
+        villager
     }
 
-    num score = 100
+    num day_count = 1
+    bool game_over = false
+
+    action kill(target) {
+        println("狼人杀害了: " + target)
+    }
+
+    action vote(target) {
+        println("投票给了: " + target)
+    }
+
+    phase night {
+        step "kill" for werewolf with kill if (!game_over) {
+            println("黑夜降临，狼人行动。")
+        }
+    }
+
+    phase day {
+        step "vote" for werewolf, villager with vote if (!game_over) {
+            println("白天到来，开始投票。")
+        }
+    }
+
+    setup {
+        println("狼人杀简化版启动。")
+        day_count = 1
+        game_over = false
+    }
 }

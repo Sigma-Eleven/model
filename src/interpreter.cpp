@@ -1,4 +1,4 @@
-#include "interpreter.h"
+#include "../include/interpreter.h"
 #include <stdexcept>
 #include <iostream>
 #include <sstream>
@@ -88,7 +88,7 @@ std::string WolfDSLInterpreter::export_ast_to_json()
     oss << "\"roles_count\":" << env_.roles.size() << ",";
     oss << "\"actions_count\":" << env_.actions.size() << ",";
     oss << "\"phases_count\":" << parse_result_.phases.size() << ",";
-    
+
     oss << "\"has_error\":" << (env_.has_error ? "true" : "false");
     if (env_.has_error)
     {
