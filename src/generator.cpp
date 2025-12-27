@@ -2,7 +2,13 @@
 #include <sstream>
 #include <algorithm>
 
-PythonGenerator::PythonGenerator(const WolfParseResult &result) : result(result) {}
+PythonGenerator::PythonGenerator(const WolfParseResult &result) : result(result)
+{
+    for (const auto &pair : result.variables)
+    {
+        varNames.insert(pair.first);
+    }
+}
 
 std::string PythonGenerator::indent(int level)
 {
@@ -99,7 +105,7 @@ std::string PythonGenerator::normalizeExpression(std::string expr)
         pos += 2;
     }
 
-    // true/false
+    // true/false and self. prefix for variables
     // replace standalone words
     std::string out;
     std::stringstream ss(expr);
@@ -107,16 +113,36 @@ std::string PythonGenerator::normalizeExpression(std::string expr)
     bool first = true;
     while (ss >> token)
     {
-        std::string low = token;
-        for (auto &c : low)
-            c = (char)std::tolower(c);
-        if (low == "true")
-            token = "True";
-        else if (low == "false")
-            token = "False";
+        // Handle operators and punctuation by keeping them but checking alphabetic tokens
+        std::string prefix, core, suffix;
+        size_t start = 0;
+        while (start < token.size() && !std::isalnum((unsigned char)token[start]) && token[start] != '_')
+            start++;
+        size_t end = token.size();
+        while (end > start && !std::isalnum((unsigned char)token[end - 1]) && token[end - 1] != '_')
+            end--;
+
+        prefix = token.substr(0, start);
+        core = token.substr(start, end - start);
+        suffix = token.substr(end);
+
+        if (!core.empty())
+        {
+            std::string low = core;
+            for (auto &c : low)
+                c = (char)std::tolower(c);
+
+            if (low == "true")
+                core = "True";
+            else if (low == "false")
+                core = "False";
+            else if (varNames.count(core))
+                core = "self." + core;
+        }
+
         if (!first)
             out += " ";
-        out += token;
+        out += prefix + core + suffix;
         first = false;
     }
     return out;
@@ -167,7 +193,10 @@ std::string PythonGenerator::transformPrintContent(const std::string &inner)
                 {
                     if (!f.empty())
                         f += " ";
-                    f += "{" + part + "}";
+                    if (varNames.count(part))
+                        f += "{self." + part + "}";
+                    else
+                        f += "{" + part + "}";
                 }
                 else
                 {
@@ -195,7 +224,11 @@ std::string PythonGenerator::transformPrintContent(const std::string &inner)
             break;
         }
     if (ident)
+    {
+        if (varNames.count(t))
+            return "self." + t;
         return t;
+    }
 
     // else quote the whole content
     return '"' + t + '"';
@@ -331,8 +364,11 @@ std::string PythonGenerator::translateBody(const std::vector<std::string> &lines
             }
             else
             {
+                // If it's part of a larger expression, replace it
                 remaining.replace(pos, end - pos + 1, "print(" + newInner + ")");
-                scanPos = pos + newInner.length() + 7;
+                // Instead of continuing the loop which might squash things,
+                // let's just make sure we don't skip the next potential print
+                scanPos = pos + ("print(" + newInner + ")").length();
             }
         }
 

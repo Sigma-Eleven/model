@@ -606,7 +606,8 @@ bool WolfParser::isKeyword(const std::string &text)
 {
     static const std::vector<std::string> breakKeywords = {
         "game", "enum", "action", "phase", "step", "def", "setup",
-        "num", "str", "bool", "obj", "if", "for", "elif", "else"};
+        "num", "str", "bool", "obj", "if", "for", "elif", "else",
+        "print", "println"};
     return std::find(breakKeywords.begin(), breakKeywords.end(), text) != breakKeywords.end();
 }
 
@@ -717,7 +718,7 @@ std::vector<std::string> WolfParser::parseStatementList()
                         line << current.text << " ";
                     consume();
                 }
-                break; 
+                break;
             }
         }
 
