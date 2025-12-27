@@ -382,7 +382,6 @@ void WolfParser::parseStepDefinition()
     {
         while (current.kind == TokenKind::IDENT)
         {
-            // 如果遇到 with, if 或 {，说明角色列表结束了
             if (current.text == "with" || current.text == "if")
             {
                 break;
