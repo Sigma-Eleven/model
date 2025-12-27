@@ -34,17 +34,24 @@ struct RuntimeValue
 
     static RuntimeValue fromString(const std::string &type_keyword, const std::string &value_str)
     {
+        // 去除首尾空格
+        std::string trimmed = value_str;
+        trimmed.erase(0, trimmed.find_first_not_of(" "));
+        trimmed.erase(trimmed.find_last_not_of(" ") + 1);
+
         if (type_keyword == "num")
         {
-            return Number(std::atoi(value_str.c_str()));
+            return Number(std::atoi(trimmed.c_str()));
         }
         else if (type_keyword == "str")
         {
-            return String(value_str);
+            return String(trimmed);
         }
         else if (type_keyword == "bool")
         {
-            return Bool(value_str == "true" || value_str == "TRUE");
+            std::string low = trimmed;
+            for (auto &c : low) c = (char)tolower(c);
+            return Bool(low == "true");
         }
         return None();
     }
