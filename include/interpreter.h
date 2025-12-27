@@ -140,25 +140,7 @@ public:
         }
     }
 
-    void run()
-    {
-        if (env_.has_error)
-        {
-            std::cerr << "DSL执行终止: " << env_.error_msg << std::endl;
-            return;
-        }
-
-        // 基础日志
-        std::cout << "开始执行DSL: " << env_.game_name << std::endl;
-        std::cout << "角色列表: " << env_.roles.size() << " 个" << std::endl;
-
-        for (const auto &phase : parse_result_.phases)
-        {
-            execute_phase(phase);
-            if (env_.has_error)
-                break;
-        }
-    }
+    void run();
 
     std::string export_ast_to_json();
 

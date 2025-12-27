@@ -436,6 +436,12 @@ void WolfParser::parseVariableDefinition()
     var.type_keyword = current.text;
     consume();
 
+    if (match(TokenKind::LBRACKET))
+    {
+        expect(TokenKind::RBRACKET, "Expected ']' after '[' in type declaration");
+        var.type_keyword += "[]";
+    }
+
     if (match(TokenKind::LPAREN))
     {
         if (current.kind != TokenKind::IDENT)
@@ -606,7 +612,7 @@ bool WolfParser::isKeyword(const std::string &text)
     static const std::vector<std::string> breakKeywords = {
         "game", "enum", "action", "phase", "step", "def", "setup",
         "num", "str", "bool", "obj", "if", "for", "elif", "else",
-        "print", "println"};
+        "print", "println", "return", "null"};
     return std::find(breakKeywords.begin(), breakKeywords.end(), text) != breakKeywords.end();
 }
 
@@ -622,12 +628,23 @@ std::string WolfParser::parseExpression()
     {
         if (current.kind == TokenKind::IDENT && isKeyword(current.text))
         {
-            break;
+            if (current.text != "null" && current.text != "true" && current.text != "false")
+            {
+                break;
+            }
         }
 
         if (current.kind == TokenKind::STRING)
         {
             expr << "\"" << current.text << "\" ";
+        }
+        else if (current.kind == TokenKind::LBRACKET)
+        {
+            expr << "[ ";
+        }
+        else if (current.kind == TokenKind::RBRACKET)
+        {
+            expr << "] ";
         }
         else
         {
@@ -699,7 +716,7 @@ std::vector<std::string> WolfParser::parseStatementList()
 
             if (current.kind == TokenKind::IDENT && isKeyword(current.text))
             {
-                if (line.tellp() > 0)
+                if (line.tellp() > 0 && current.text != "null" && current.text != "true" && current.text != "false")
                 {
                     break;
                 }

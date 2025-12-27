@@ -44,6 +44,8 @@ enum class TokenKind
     AND,
     OR,
     NOT,
+    LBRACKET, 
+    RBRACKET, 
     UNKNOWN
 };
 

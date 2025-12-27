@@ -153,6 +153,12 @@ Token Lexer::getNextToken()
     case '}':
         get();
         return Token(TokenKind::RBRACE, "}", i);
+    case '[':
+        get();
+        return Token(TokenKind::LBRACKET, "[", i);
+    case ']':
+        get();
+        return Token(TokenKind::RBRACKET, "]", i);
     case ',':
         get();
         return Token(TokenKind::COMMA, ",", i);
