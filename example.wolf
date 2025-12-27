@@ -40,6 +40,21 @@ game WerewolfGame {
 
     setup {
         println("Werewolf game started!")
+        num test_var = 10
+        if (test_var > 5) {
+            println("test_var is greater than 5")
+        }
+        for (i, 3) {
+            if (i == 1) {
+                // continue is not in syntax.md, but let's keep it if parser supports it
+                // Actually syntax.md doesn't mention continue/break.
+                // Let's check parser.cpp
+            }
+            println("Loop iteration: " + i)
+            if (i == 2) {
+                // break is not in syntax.md
+            }
+        }
         println("Roles assigned")
     }
 }

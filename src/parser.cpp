@@ -610,7 +610,7 @@ bool WolfParser::isKeyword(const std::string &text)
     // 像 for, if, return 等可能出现在表达式或语句中间的关键字不应在此列
     static const std::vector<std::string> breakKeywords = {
         "game", "enum", "action", "phase", "step", "def", "setup",
-        "num", "str", "bool", "obj"};
+        "num", "str", "bool", "obj", "if", "for", "elif", "else"};
     return std::find(breakKeywords.begin(), breakKeywords.end(), text) != breakKeywords.end();
 }
 
@@ -630,7 +630,14 @@ std::string WolfParser::parseExpression()
             break;
         }
 
-        expr << current.text << " ";
+        if (current.kind == TokenKind::STRING)
+        {
+            expr << "\"" << current.text << "\" ";
+        }
+        else
+        {
+            expr << current.text << " ";
+        }
         consume();
     }
 
@@ -657,45 +664,73 @@ std::vector<std::string> WolfParser::parseCodeBlock()
 std::vector<std::string> WolfParser::parseStatementList()
 {
     std::vector<std::string> lines;
+    int braceDepth = 0;
 
-    while (current.kind != TokenKind::RBRACE && current.kind != TokenKind::END)
+    while (current.kind != TokenKind::END)
     {
+        if (current.kind == TokenKind::RBRACE && braceDepth == 0)
+            break;
+
         if (current.kind == TokenKind::SEMI)
         {
             consume();
             continue;
         }
 
-        std::stringstream line;
-
-        while (current.kind != TokenKind::SEMI &&
-               current.kind != TokenKind::RBRACE &&
-               current.kind != TokenKind::END)
+        if (current.kind == TokenKind::LBRACE)
         {
-            // 如果遇到下一个定义的关键字，停止当前行解析
+            braceDepth++;
+            lines.push_back("{");
+            consume();
+            continue;
+        }
+
+        if (current.kind == TokenKind::RBRACE)
+        {
+            braceDepth--;
+            lines.push_back("}");
+            consume();
+            continue;
+        }
+
+        std::stringstream line;
+        while (current.kind != TokenKind::SEMI && current.kind != TokenKind::END &&
+               current.kind != TokenKind::LBRACE && current.kind != TokenKind::RBRACE)
+        {
             if (current.kind == TokenKind::IDENT && isKeyword(current.text))
             {
-                // 排除掉 if/for 等可以在语句块内部出现的关键字
-                if (current.text != "if" && current.text != "for" && current.text != "return")
+                // Any keyword that starts a new statement should break the line if we already have tokens.
+                if (line.tellp() > 0)
                 {
                     break;
                 }
             }
 
-            line << current.text << " ";
+            if (current.kind == TokenKind::STRING)
+                line << "\"" << current.text << "\" ";
+            else
+                line << current.text << " ";
             consume();
+
+            // Special case for if/for/elif: they usually have (condition) which we want to keep on the same line before the {
+            std::string lineStr = line.str();
+            if (lineStr.find("if ") == 0 || lineStr.find("for ") == 0 || lineStr.find("elif ") == 0)
+            {
+                while (current.kind != TokenKind::END && current.kind != TokenKind::LBRACE && current.kind != TokenKind::SEMI)
+                {
+                    if (current.kind == TokenKind::STRING)
+                        line << "\"" << current.text << "\" ";
+                    else
+                        line << current.text << " ";
+                    consume();
+                }
+                break; // Stop this line at the brace
+            }
         }
 
-        std::string lineStr = line.str();
-        if (!lineStr.empty())
-        {
-            lines.push_back(lineStr);
-        }
-
-        if (current.kind == TokenKind::SEMI)
-        {
-            consume();
-        }
+        std::string s = line.str();
+        if (!s.empty())
+            lines.push_back(s);
     }
 
     return lines;

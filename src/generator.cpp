@@ -71,7 +71,7 @@ static std::string toPythonLiteral(const std::string &val)
     return t;
 }
 
-static std::string normalizeExpression(std::string expr)
+std::string PythonGenerator::normalizeExpression(std::string expr)
 {
     // protect '!='
     size_t pos = 0;
@@ -122,7 +122,7 @@ static std::string normalizeExpression(std::string expr)
     return out;
 }
 
-static std::string transformPrintContent(const std::string &inner)
+std::string PythonGenerator::transformPrintContent(const std::string &inner)
 {
     std::string s = trimStr(inner);
     // If contains +, build f-string
@@ -208,197 +208,281 @@ std::string PythonGenerator::translateBody(const std::vector<std::string> &lines
         return indent(indentLevel) + "pass\n";
     }
 
-    std::stringstream ss;
+    struct GenLine
+    {
+        int indent;
+        std::string content;
+    };
+    std::vector<GenLine> genLines;
+    int currentIndent = indentLevel;
+
     for (const auto &line : lines)
     {
         std::string trimmed = line;
-        // 移除末尾分号和空白
+        // 移除末尾分号
         trimmed.erase(std::remove(trimmed.begin(), trimmed.end(), ';'), trimmed.end());
         trimmed = trimStr(trimmed);
 
-        // 分离并处理行内的多个 print/println 调用
+        if (trimmed.empty())
+            continue;
+
+        // 处理大括号控制缩进
+        if (trimmed == "{")
+        {
+            currentIndent++;
+            continue;
+        }
+        if (trimmed == "}")
+        {
+            currentIndent--;
+            if (currentIndent < indentLevel)
+                currentIndent = indentLevel;
+            continue;
+        }
+
+        // 处理变量声明 (num x = 10 -> x = 10)
+        if (trimmed.compare(0, 4, "num ") == 0)
+            trimmed = trimmed.substr(4);
+        else if (trimmed.compare(0, 4, "str ") == 0)
+            trimmed = trimmed.substr(4);
+        else if (trimmed.compare(0, 5, "bool ") == 0)
+            trimmed = trimmed.substr(5);
+        else if (trimmed.compare(0, 4, "obj ") == 0)
+            trimmed = trimmed.substr(4);
+
+        // 处理 if (cond) -> if cond:
+        if (trimmed.compare(0, 3, "if ") == 0 || trimmed.compare(0, 3, "if(") == 0)
+        {
+            size_t start = trimmed.find('(');
+            size_t end = trimmed.find_last_of(')');
+            if (start != std::string::npos && end != std::string::npos)
+            {
+                std::string cond = trimmed.substr(start + 1, end - start - 1);
+                trimmed = "if " + normalizeExpression(cond) + ":";
+            }
+        }
+        // 处理 elif (cond) -> elif cond:
+        else if (trimmed.compare(0, 5, "elif ") == 0 || trimmed.compare(0, 5, "elif(") == 0)
+        {
+            size_t start = trimmed.find('(');
+            size_t end = trimmed.find_last_of(')');
+            if (start != std::string::npos && end != std::string::npos)
+            {
+                std::string cond = trimmed.substr(start + 1, end - start - 1);
+                trimmed = "elif " + normalizeExpression(cond) + ":";
+            }
+        }
+        // 处理 else -> else:
+        else if (trimmed == "else")
+        {
+            trimmed = "else:";
+        }
+        // 处理 for (i, count) -> for i in range(count):
+        else if (trimmed.compare(0, 4, "for ") == 0 || trimmed.compare(0, 4, "for(") == 0)
+        {
+            size_t start = trimmed.find('(');
+            size_t end = trimmed.find_last_of(')');
+            if (start != std::string::npos && end != std::string::npos)
+            {
+                std::string content = trimmed.substr(start + 1, end - start - 1);
+                size_t comma = content.find(',');
+                if (comma != std::string::npos)
+                {
+                    std::string var = trimStr(content.substr(0, comma));
+                    std::string count = trimStr(content.substr(comma + 1));
+                    trimmed = "for " + var + " in range(" + count + "):";
+                }
+            }
+        }
+
+        // 处理 print/println
         std::string remaining = trimmed;
         size_t scanPos = 0;
-        bool foundPrint = false;
+        bool hasPrint = false;
         while (true)
         {
             size_t pos = remaining.find("print", scanPos);
             if (pos == std::string::npos)
                 break;
-            // 找到 '('
+
             size_t start = remaining.find('(', pos);
             if (start == std::string::npos)
-                break;
-            // 找到下一个 ')' 对应
+            {
+                scanPos = pos + 5;
+                continue;
+            }
+
             size_t end = remaining.find(')', start);
             if (end == std::string::npos)
-                break;
+            {
+                scanPos = pos + 5;
+                continue;
+            }
+
             std::string inner = remaining.substr(start + 1, end - start - 1);
             std::string newInner = transformPrintContent(inner);
-            ss << indent(indentLevel) << "print(" << newInner << ")\n";
-            // 删除已处理的 print(...) 段以便继续扫描剩余内容
-            remaining.erase(pos, end - pos + 1);
-            foundPrint = true;
-            scanPos = pos; // 继续从删除处扫描
+
+            if (trimStr(remaining) == remaining.substr(pos, end - pos + 1))
+            {
+                genLines.push_back({currentIndent, "print(" + newInner + ")"});
+                hasPrint = true;
+                remaining = "";
+                break;
+            }
+            else
+            {
+                remaining.replace(pos, end - pos + 1, "print(" + newInner + ")");
+                scanPos = pos + newInner.length() + 7;
+            }
         }
 
-        // 剩余代码（非 print 部分）也需要正常化和输出
-        remaining = trimStr(remaining);
         if (!remaining.empty())
         {
-            remaining = normalizeExpression(remaining);
-            ss << indent(indentLevel) << remaining << "\n";
-        }
-        else if (!foundPrint)
-        {
-            // 如果既没有 print 也没有其他内容，输出 pass
-            ss << indent(indentLevel) << "pass\n";
+            genLines.push_back({currentIndent, normalizeExpression(remaining)});
         }
     }
-    return ss.str();
+
+    if (genLines.empty())
+    {
+        return indent(indentLevel) + "pass\n";
+    }
+
+    std::stringstream final_ss;
+    for (size_t i = 0; i < genLines.size(); ++i)
+    {
+        final_ss << indent(genLines[i].indent) << genLines[i].content << "\n";
+        // 如果当前行以 : 结尾，检查下一行是否缩进更深
+        if (!genLines[i].content.empty() && genLines[i].content.back() == ':')
+        {
+            bool hasDeeper = false;
+            if (i + 1 < genLines.size())
+            {
+                if (genLines[i + 1].indent > genLines[i].indent)
+                {
+                    hasDeeper = true;
+                }
+            }
+            if (!hasDeeper)
+            {
+                final_ss << indent(genLines[i].indent + 1) << "pass\n";
+            }
+        }
+    }
+
+    return final_ss.str();
 }
 
 std::string PythonGenerator::generate()
 {
     std::stringstream ss;
 
-    ss << "# Generated Python code from Wolf DSL\n";
-    ss << "import time\n\n";
+    // --- 1. Imports ---
+    ss << "\"\"\"\n"
+       << "Generated by Wolf DSL Translator\n"
+       << "Game: " << result.gameName << "\n\"\"\"\n\n";
+    ss << "import random\nimport time\nfrom pathlib import Path\nfrom typing import List, Dict, Optional\n\n";
+    ss << "# Engine Imports\n";
+    ss << "from game.engine import Game, GamePhase, GameStep, GameAction\n";
+    ss << "from game.models import Role, DeathReason\n";
+    ss << "from game.player import Player\n\n\n";
 
-    // 1. 角色定义
-    ss << "ROLES = " << "[";
-    for (size_t i = 0; i < result.roles.size(); ++i)
-    {
-        ss << "\"" << result.roles[i] << "\"" << (i == result.roles.size() - 1 ? "" : ", ");
-    }
-    ss << "]\n\n";
-
-    // 2. 全局变量
-    ss << "# Global Variables\n";
-    for (const auto &pair : result.variables)
-    {
-        ss << pair.first << " = " << toPythonLiteral(pair.second.value) << "\n";
-    }
-    ss << "\n";
-
-    // 3. 动作定义 (作为类或函数)
-    ss << "# Actions\n";
+    // --- 2. Action Classes ---
+    ss << "# ==========================================\n";
+    ss << "# Action Classes\n";
+    ss << "# ==========================================\n\n";
     for (const auto &action : result.actions)
     {
-        ss << "def action_" << action.name << "(";
-        for (size_t i = 0; i < action.params.size(); ++i)
-        {
-            ss << action.params[i].name << (i == action.params.size() - 1 ? "" : ", ");
-        }
-        ss << "):\n";
-        ss << translateBody(action.bodyLines, 1);
-        ss << "\n";
+        std::string className = action.name;
+        if (!className.empty())
+            className[0] = std::toupper(className[0]);
+        className += "Action";
+        ss << "class " << className << "(GameAction):\n";
+        ss << indent(1) << "\"\"\"Action class for DSL action: " << action.name << "\"\"\"\n";
+        ss << indent(1) << "def execute(self, game, player, target=None):\n";
+        ss << indent(2) << "game.action_" << action.name << "(target)\n\n";
     }
 
-    // 4. 阶段与步骤逻辑
-    ss << "class GameFlow:\n";
-    ss << indent(1) << "def __init__(self):\n";
-    ss << indent(2) << "self.current_phase = None\n\n";
+    // --- 3. Main Game Class ---
+    ss << "# ==========================================\n";
+    ss << "# Main Game Class\n";
+    ss << "# ==========================================\n\n";
+    ss << "class " << result.gameName << "(Game):\n";
+    ss << indent(1) << "\"\"\"" << result.gameName << " implementation generated from DSL.\"\"\"\n\n";
+    ss << indent(1) << "def __init__(self, players: List[Dict[str, str]], event_emitter=None, input_handler=None):\n";
+    ss << indent(2) << "super().__init__(\"" << result.gameName << "\", players, event_emitter, input_handler)\n\n";
 
-    for (const auto &phase : result.phases)
+    ss << indent(2) << "# DSL Global Variables\n";
+    for (const auto &pair : result.variables)
+        ss << indent(2) << "self." << pair.first << " = " << toPythonLiteral(pair.second.value) << "\n";
+
+    ss << "\n"
+       << indent(2) << "self._init_phases()\n\n";
+
+    // --- 4. Lifecycle Methods ---
+    ss << indent(1) << "def _init_phases(self):\n";
+    ss << indent(2) << "\"\"\"Initialize game phases and steps from DSL.\"\"\"\n";
+    if (result.phases.empty())
     {
-        ss << indent(1) << "def phase_" << phase.name << "(self):\n";
-        ss << indent(2) << "print(f\"--- Phase: " << phase.name << " ---\")\n";
-        for (const auto &step : phase.steps)
+        ss << indent(2) << "pass\n";
+    }
+    else
+    {
+        for (const auto &phase : result.phases)
         {
-            ss << indent(2) << "# Step: " << step.name << "\n";
-            std::string cond = step.condition.empty() ? "" : normalizeExpression(step.condition);
-            if (!cond.empty())
+            ss << indent(2) << phase.name << " = GamePhase(\"" << phase.name << "\")\n";
+            for (const auto &step : phase.steps)
             {
-                ss << indent(2) << "if " << cond << ":\n";
-                ss << indent(3) << "print(f\"Executing step: " << step.name << "\")\n";
+                std::string actionClass = "None";
                 if (!step.actionName.empty())
                 {
-                    const WolfParseResult::ActionDef *act = nullptr;
-                    for (const auto &a : result.actions)
-                        if (a.name == step.actionName)
-                        {
-                            act = &a;
-                            break;
-                        }
-                    if (act && !act->params.empty())
-                    {
-                        ss << indent(3) << "action_" << step.actionName << "(";
-                        for (size_t i = 0; i < act->params.size(); ++i)
-                        {
-                            if (i)
-                                ss << ", ";
-                            std::string pname = act->params[i].name;
-                            std::string joined;
-                            for (const auto &l : step.bodyLines)
-                                joined += l + " ";
-                            if (joined.find(pname) != std::string::npos)
-                                ss << pname;
-                            else
-                                ss << "None";
-                        }
-                        ss << ")\n";
-                    }
-                    else
-                    {
-                        ss << indent(3) << "action_" << step.actionName << "()\n";
-                    }
+                    actionClass = step.actionName;
+                    actionClass[0] = std::toupper(actionClass[0]);
+                    actionClass += "Action()";
                 }
-                ss << translateBody(step.bodyLines, 3);
+                ss << indent(2) << phase.name << ".add_step(GameStep(\"" << step.name << "\", [";
+                for (size_t i = 0; i < step.rolesInvolved.size(); ++i)
+                    ss << "Role." << step.rolesInvolved[i] << (i == step.rolesInvolved.size() - 1 ? "" : ", ");
+                ss << "], " << actionClass << "))\n";
             }
-            else
-            {
-                ss << indent(2) << "print(f\"Executing step: " << step.name << "\")\n";
-                if (!step.actionName.empty())
-                {
-                    const WolfParseResult::ActionDef *act = nullptr;
-                    for (const auto &a : result.actions)
-                        if (a.name == step.actionName)
-                        {
-                            act = &a;
-                            break;
-                        }
-                    if (act && !act->params.empty())
-                    {
-                        ss << indent(2) << "action_" << step.actionName << "(";
-                        for (size_t i = 0; i < act->params.size(); ++i)
-                        {
-                            if (i)
-                                ss << ", ";
-                            std::string pname = act->params[i].name;
-                            std::string joined;
-                            for (const auto &l : step.bodyLines)
-                                joined += l + " ";
-                            if (joined.find(pname) != std::string::npos)
-                                ss << pname;
-                            else
-                                ss << "None";
-                        }
-                        ss << ")\n";
-                    }
-                    else
-                    {
-                        ss << indent(2) << "action_" << step.actionName << "()\n";
-                    }
-                }
-                ss << translateBody(step.bodyLines, 2);
-            }
+            ss << indent(2) << "self.phases.append(" << phase.name << ")\n\n";
         }
-        ss << "\n";
     }
 
-    // 5. Setup与启动
-    ss << "def run_game():\n";
-    ss << indent(1) << "print(\"=== Starting " << result.gameName << " ===\")\n";
-    ss << translateBody(result.setup.bodyLines, 1);
-    ss << indent(1) << "flow = GameFlow()\n";
-    for (const auto &phase : result.phases)
+    ss << indent(1) << "def setup_game(self):\n";
+    ss << indent(2) << "\"\"\"Custom game setup logic from DSL.\"\"\"\n";
+    ss << indent(2) << "super().setup_game()  # Call engine base setup\n";
+    ss << indent(2) << "# DSL Custom Logic\n"
+       << translateBody(result.setup.bodyLines, 2) << "\n";
+
+    // --- 5. DSL Logic (Actions & Methods) ---
+    auto genMethod = [&](const std::string &prefix, const auto &items)
     {
-        ss << indent(1) << "flow.phase_" << phase.name << "()\n";
-    }
+        for (const auto &item : items)
+        {
+            ss << indent(1) << "def " << prefix << item.name << "(self, ";
+            for (size_t i = 0; i < item.params.size(); ++i)
+                ss << item.params[i].name << (i == item.params.size() - 1 ? "" : ", ");
+            ss << "):\n";
+            ss << translateBody(item.bodyLines, 2) << "\n";
+        }
+    };
+    genMethod("action_", result.actions);
+    genMethod("", result.methods);
 
-    ss << "\nif __name__ == \"__main__\":\n";
-    ss << indent(1) << "run_game()\n";
+    // --- 6. Utilities ---
+    ss << indent(1) << "# ------------------------------------------\n";
+    ss << indent(1) << "def get_alive_players(self, roles: Optional[List] = None) -> List[str]:\n";
+    ss << indent(2) << "\"\"\"Get names of alive players, optionally filtered by roles.\"\"\"\n";
+    ss << indent(2) << "return [name for name, p in self.players.items() \n";
+    ss << indent(3) << "        if p.is_alive and (roles is None or p.role in [getattr(r, 'value', r) for r in roles])]\n\n";
+
+    // --- 7. Entry Point ---
+    ss << "if __name__ == \"__main__\":\n";
+    ss << indent(1) << "# Simple test execution\n";
+    ss << indent(1) << "players_data = [{'name': f'Player{i}'} for i in range(6)]\n";
+    ss << indent(1) << "game_instance = " << result.gameName << "(players_data)\n";
+    ss << indent(1) << "game_instance.setup_game()\n";
+    ss << indent(1) << "print(f\"Game '{game_instance.name}' initialized with {len(game_instance.phases)} phases.\")\n";
 
     return ss.str();
 }
