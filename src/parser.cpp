@@ -204,7 +204,6 @@ void WolfParser::parseInGameBlock()
         parseExpressionStatement();
     }
 
-    // 强制消耗一个Token以防死循环
     if (current.kind == before.kind && current.line == before.line && current.text == before.text && current.kind != TokenKind::END)
     {
         consume();
@@ -438,7 +437,6 @@ void WolfParser::parseVariableDefinition()
     var.type_keyword = current.text;
     consume();
 
-    // 支持 num(var) 和 num var 两种写法
     if (match(TokenKind::LPAREN))
     {
         if (current.kind != TokenKind::IDENT)
@@ -606,11 +604,10 @@ void WolfParser::parseExpressionStatement()
 
 bool WolfParser::isKeyword(const std::string &text)
 {
-    // 只有那些代表“新块开始”的关键字才应该强制截断表达式
-    // 像 for, if, return 等可能出现在表达式或语句中间的关键字不应在此列
     static const std::vector<std::string> breakKeywords = {
         "game", "enum", "action", "phase", "step", "def", "setup",
-        "num", "str", "bool", "obj", "if", "for", "elif", "else"};
+        "num", "str", "bool", "obj", "if", "for", "elif", "else",
+        "print", "println"};
     return std::find(breakKeywords.begin(), breakKeywords.end(), text) != breakKeywords.end();
 }
 
@@ -624,7 +621,6 @@ std::string WolfParser::parseExpression()
            current.kind != TokenKind::COMMA &&
            current.kind != TokenKind::END)
     {
-        // 如果遇到下一个关键字且不是在括号内，则停止解析表达式
         if (current.kind == TokenKind::IDENT && isKeyword(current.text))
         {
             break;
@@ -699,7 +695,6 @@ std::vector<std::string> WolfParser::parseStatementList()
         {
             if (current.kind == TokenKind::IDENT && isKeyword(current.text))
             {
-                // Any keyword that starts a new statement should break the line if we already have tokens.
                 if (line.tellp() > 0)
                 {
                     break;
@@ -712,7 +707,6 @@ std::vector<std::string> WolfParser::parseStatementList()
                 line << current.text << " ";
             consume();
 
-            // Special case for if/for/elif: they usually have (condition) which we want to keep on the same line before the {
             std::string lineStr = line.str();
             if (lineStr.find("if ") == 0 || lineStr.find("for ") == 0 || lineStr.find("elif ") == 0)
             {
@@ -724,7 +718,7 @@ std::vector<std::string> WolfParser::parseStatementList()
                         line << current.text << " ";
                     consume();
                 }
-                break; // Stop this line at the brace
+                break;
             }
         }
 
