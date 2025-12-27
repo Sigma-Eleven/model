@@ -50,7 +50,7 @@ void WolfDSLInterpreter::execute_step(const WolfParseResult::PhaseDef::StepDef &
         std::cout << "    参与角色：" << step.rolesInvolved[0];
         if (step.rolesInvolved.size() > 1)
         {
-            std::cout << " 等" << step.rolesInvolved.size() << "人";
+            std::cout << " 等" << step.rolesInvolved.size() - 1 << "人";
         }
         std::cout << std::endl;
     }
