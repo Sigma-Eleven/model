@@ -687,11 +687,16 @@ std::vector<std::string> WolfParser::parseStatementList()
             consume();
             continue;
         }
-
+        int stmtLine = current.line;
         std::stringstream line;
         while (current.kind != TokenKind::SEMI && current.kind != TokenKind::END &&
                current.kind != TokenKind::LBRACE && current.kind != TokenKind::RBRACE)
         {
+            if (line.tellp() > 0 && current.line != stmtLine)
+            {
+                break;
+            }
+
             if (current.kind == TokenKind::IDENT && isKeyword(current.text))
             {
                 if (line.tellp() > 0)
