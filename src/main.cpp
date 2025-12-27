@@ -39,6 +39,7 @@ int main(int argc, char *argv[])
     {
         // 1. 解析DSL
         std::string source = read_file(dsl_path);
+
         WolfParser parser(source);
         WolfParseResult result = parser.parse();
 
@@ -55,14 +56,15 @@ int main(int argc, char *argv[])
             PythonGenerator generator(result);
             std::string py_code = generator.generate();
 
-            std::ofstream out(py_path);
+            std::ofstream out(py_path, std::ios::out | std::ios::trunc);
             if (!out.is_open())
             {
                 throw std::runtime_error("无法创建输出文件: " + py_path);
             }
             out << py_code;
+            out.flush();
             out.close();
-            std::cout << "翻译完成！" << std::endl;
+            std::cout << "翻译完成！文件已写入: " << py_path << std::endl;
         }
         else
         {
