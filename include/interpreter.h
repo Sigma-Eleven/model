@@ -16,10 +16,10 @@
 
 enum class ValueType
 {
-    NUMBER, 
-    STRING, 
-    BOOL,   
-    NONE    
+    NUMBER,
+    STRING,
+    BOOL,
+    NONE
 };
 
 struct RuntimeValue
@@ -50,7 +50,8 @@ struct RuntimeValue
         else if (type_keyword == "bool")
         {
             std::string low = trimmed;
-            for (auto &c : low) c = (char)tolower(c);
+            for (auto &c : low)
+                c = (char)tolower(c);
             return Bool(low == "true");
         }
         return None();
@@ -81,7 +82,7 @@ public:
         {
             return global_vars[name];
         }
-        throw std::runtime_error("未定义的变量:" + name);
+        throw std::runtime_error("未定义的变量: " + name);
     }
 
     void register_action(const WolfParseResult::ActionDef &action)
@@ -93,7 +94,7 @@ public:
     {
         if (actions.find(action_name) == actions.end())
         {
-            throw std::runtime_error("未定义的动作:" + action_name);
+            throw std::runtime_error("未定义的动作: " + action_name);
         }
         return actions[action_name];
     }
@@ -129,13 +130,13 @@ public:
             }
             catch (const std::exception &e)
             {
-                env_.set_error("变量初始化失败 [" + var_name + "]:" + e.what());
+                env_.set_error("变量初始化失败 [" + var_name + "]: " + e.what());
             }
         }
 
         if (parse_result.hasError)
         {
-            env_.set_error("解析错误:" + parse_result.errorMessage);
+            env_.set_error("解析错误: " + parse_result.errorMessage);
         }
     }
 
@@ -143,19 +144,19 @@ public:
     {
         if (env_.has_error)
         {
-            std::cerr << "DSL执行终止:" << env_.error_msg << std::endl;
+            std::cerr << "DSL执行终止: " << env_.error_msg << std::endl;
             return;
         }
 
-        // 基础日志（仅保留必要输出）
-        std::cout << "开始执行DSL:" << env_.game_name << std::endl;
-        std::cout << "角色列表:" << env_.roles.size() << "个" << std::endl;
+        // 基础日志
+        std::cout << "开始执行DSL: " << env_.game_name << std::endl;
+        std::cout << "角色列表: " << env_.roles.size() << " 个" << std::endl;
 
         for (const auto &phase : parse_result_.phases)
         {
             execute_phase(phase);
             if (env_.has_error)
-                break; 
+                break;
         }
     }
 
@@ -163,7 +164,7 @@ public:
 
 private:
     WolfParseResult parse_result_;
-    RuntimeEnv env_;              
+    RuntimeEnv env_;
 
     void execute_phase(const WolfParseResult::PhaseDef &phase);
 

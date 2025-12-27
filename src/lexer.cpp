@@ -1,4 +1,4 @@
-#include "lexer.h"
+#include "../include/lexer.h"
 #include <cctype>
 
 Token::Token(TokenKind k, std::string t, int l) : kind(k), text(std::move(t)), line(l) {}
