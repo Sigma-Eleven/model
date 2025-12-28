@@ -19,13 +19,15 @@ sys.path.append(str(BASE))
 
 class RobotPlayer(Player):
     def speak(self, prompt: str) -> str:
-        print(f"[发言] {self.name}: {prompt}")
-        return "0" if "投票" in prompt else f"我是{self.name}，身份是{self.role}"
+        if "投票" in prompt: return "0"
+        return f"我是{self.name}，我会努力找出狼人的。"
 
     def choose(self, prompt: str, candidates: List[str], allow_skip: bool = False) -> Optional[str]:
-        if not candidates: return "skip" if allow_skip else None
-        choice = random.choice(candidates)
-        print(f"[选择] {self.name} 选择了 {choice}")
+        filtered_candidates = [c for c in candidates if c != self.name]
+        if not filtered_candidates:
+            if not candidates: return "skip" if allow_skip else None
+            filtered_candidates = candidates
+        choice = random.choice(filtered_candidates)
         return choice
 
 class Role(Enum):
@@ -99,15 +101,16 @@ class WerewolfNightAction(GameAction):
                 max_rounds=5, enable_ready_check=True, visibility=werewolves, prefix="#:"
             )
         alive_players = game.get_alive_players()
+        candidates = [p for p in alive_players if p not in werewolves]
         target = game.process_vote(
-            werewolves, alive_players,
+            werewolves, candidates,
             {
                 'start': '狼人请投票',
                 'prompt': '{0}, 请投票选择要击杀的目标: ',
                 'result_out': '狼人投票决定击杀 {0}',
                 'result_tie': '狼人投票出现平票, 请重新投票'
             },
-            retry_on_tie=True, visibility=werewolves
+            retry_on_tie=True, max_retries=2, visibility=werewolves
         )
         game.killed_player = target
         game.announce("狼人请闭眼", prefix="#@")
@@ -123,7 +126,8 @@ class SeerAction(GameAction):
         prompt = "预言家, 请选择要查验的玩家: "
         game.announce("预言家请睁眼. 请选择要你要查验的玩家: ", visible_to=[seer.name], prefix="#@")
         alive_players = game.get_alive_players()
-        target = seer.choose(prompt, alive_players)
+        candidates = [p for p in alive_players if p != seer.name]
+        target = seer.choose(prompt, candidates)
         role = game.players[target].role
         identity = "狼人" if role == Role.WEREWOLF.value else "好人"
         game.announce(f"你查验了 {target} 的身份, 结果为 {identity}", visible_to=[seer.name], prefix="#@")
@@ -148,19 +152,24 @@ class WitchAction(GameAction):
                 actual_killed = game.killed_player
         if not game.witch_save_used and actual_killed:
             prompt = "女巫, 你要使用解药吗? "
-            if witch.choose(prompt, ["y", "n"]) == "y":
+            # 机器人女巫倾向于救人
+            use_save = witch.choose(prompt, ["y", "n"]) == "y" if not isinstance(witch, RobotPlayer) else True
+            if use_save:
                 actual_killed = None
                 game.witch_save_used = True
                 game.announce(f"你使用解药救了 {game.killed_player}", visible_to=[witch.name], prefix="#@")
         if not game.witch_poison_used:
             prompt = "女巫, 你要使用毒药吗? "
-            if witch.choose(prompt, ["y", "n"]) == "y":
+            # 如果没有救人，则更有可能使用毒药
+            use_poison = witch.choose(prompt, ["y", "n"]) == "y" if not isinstance(witch, RobotPlayer) else (actual_killed is not None)
+            if use_poison:
                 poison_prompt = "请选择要毒杀的玩家: "
-                target = witch.choose(poison_prompt, alive_players)
-                if actual_killed is None: actual_killed = target
-                else: game.handle_death(target, DeathReason.POISONED_BY_WITCH)
-                game.witch_poison_used = True
-                game.announce(f"你使用毒药毒了 {target}", visible_to=[witch.name], prefix="#@")
+                candidates = [p for p in alive_players if p != witch.name]
+                target = witch.choose(poison_prompt, candidates)
+                if target:
+                    game.handle_death(target, DeathReason.POISONED_BY_WITCH)
+                    game.witch_poison_used = True
+                    game.announce(f"你使用毒药毒了 {target}", visible_to=[witch.name], prefix="#@")
         game.killed_player = actual_killed
         game.announce("女巫请闭眼", prefix="#@")
 
@@ -220,6 +229,7 @@ class WerewolfGame(Game):
         self.last_guarded: Optional[str] = None
         self.witch_save_used = False
         self.witch_poison_used = False
+        self._game_over_announced = False
 
     def _init_phases(self):
         # Night Phase
@@ -331,10 +341,14 @@ class WerewolfGame(Game):
         alive_villagers = self.get_alive_players([Role.VILLAGER, Role.SEER, Role.WITCH, Role.HUNTER, Role.GUARD])
 
         if not alive_werewolves:
-            self.announce("游戏结束, 好人阵营胜利!", prefix="#!")
+            if not self._game_over_announced:
+                self.announce("游戏结束, 好人阵营胜利!", prefix="#!")
+                self._game_over_announced = True
             return True
         elif len(alive_werewolves) >= len(alive_villagers):
-            self.announce("游戏结束, 狼人阵营胜利!", prefix="#!")
+            if not self._game_over_announced:
+                self.announce("游戏结束, 狼人阵营胜利!", prefix="#!")
+                self._game_over_announced = True
             return True
         return False
 
