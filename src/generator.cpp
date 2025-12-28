@@ -21,95 +21,70 @@ static std::string trimStr(const std::string &s)
 
 PythonGenerator::PythonGenerator(const WolfParseResult &result) : result(result)
 {
-    auto cleanName = [](const std::string &s) -> std::string
+    auto clean = [](std::string n)
     {
-        std::string name = trimStr(s);
-        // Remove any non-alphanumeric characters from start (like BOM or spaces)
-        while (!name.empty() && !isalnum((unsigned char)name[0]) && name[0] != '_')
-        {
-            name = name.substr(1);
-        }
-        // Also trim from end to be safe
-        while (!name.empty() && !isalnum((unsigned char)name.back()) && name.back() != '_')
-        {
-            name.pop_back();
-        }
-        return name;
+        n = trimStr(n);
+        while (!n.empty() && !isalnum((unsigned char)n[0]) && n[0] != '_')
+            n = n.substr(1);
+        while (!n.empty() && !isalnum((unsigned char)n.back()) && n.back() != '_')
+            n.pop_back();
+        return n;
     };
-
-    for (const auto &pair : result.variables)
+    for (auto &v : result.variables)
+        varNames.insert(clean(v.first));
+    for (auto &m : result.methods)
     {
-        varNames.insert(cleanName(pair.first));
+        varNames.insert(clean(m.name));
+        methodNames.insert(clean(m.name));
     }
-    for (const auto &method : result.methods)
+    for (auto &a : result.actions)
     {
-        varNames.insert(cleanName(method.name));
-        methodNames.insert(cleanName(method.name));
-    }
-    for (const auto &action : result.actions)
-    {
-        varNames.insert(cleanName(action.name));
-        actionNames.insert(cleanName(action.name));
+        varNames.insert(clean(a.name));
+        actionNames.insert(clean(a.name));
     }
 
-    // Proactively scan bodyLines for variable declarations (e.g. obj role_config)
-    auto scanForVars = [&](const std::vector<std::string> &lines)
+    auto scan = [&](const std::vector<std::string> &ls)
     {
-        for (const auto &line : lines)
+        for (auto &l : ls)
         {
-            std::string trimmed = trimStr(line);
-            if (trimmed.empty())
-                continue;
-
-            static const std::vector<std::string> types = {"num", "str", "bool", "obj", "num[]", "str[]", "bool[]", "obj[]", "[]", "[ ]"};
-            for (const auto &t : types)
+            std::string t = trimStr(l);
+            static const std::vector<std::string> types = {"num", "str", "bool", "obj", "[]"};
+            for (auto &tp : types)
             {
-                // Match type followed by space or [
-                if (trimmed.compare(0, t.length(), t) == 0)
+                if (t.find(tp) == 0 && (t.size() == tp.size() || !isalnum(t[tp.size()])))
                 {
-                    size_t nextCharPos = t.length();
-                    if (nextCharPos < trimmed.length() && (trimmed[nextCharPos] == ' ' || trimmed[nextCharPos] == '['))
-                    {
-                        size_t start = nextCharPos;
-                        while (start < trimmed.length() && (trimmed[start] == ' ' || trimmed[start] == '[' || trimmed[start] == ']'))
-                            start++;
-
-                        size_t end = start;
-                        while (end < trimmed.length() && (isalnum((unsigned char)trimmed[end]) || trimmed[end] == '_'))
-                            end++;
-
-                        if (end > start)
-                        {
-                            std::string var = cleanName(trimmed.substr(start, end - start));
-
-                            // Exclude common local variables to match wolf_out.py
-                            static const std::set<std::string> localVars = {
-                                "role", "count", "player", "voter", "name", "teammates",
-                                "role_str", "alive_players", "werewolves", "voted_out_players",
-                                "voted_out", "player_name", "valid_targets", "role_list"};
-
-                            if (!var.empty() && localVars.find(var) == localVars.end())
-                            {
-                                varNames.insert(var);
-                            }
-                        }
-                        break;
-                    }
+                    size_t s = tp.size();
+                    while (s < t.size() && (isspace(t[s]) || t[s] == '[' || t[s] == ']'))
+                        s++;
+                    size_t e = s;
+                    while (e < t.size() && (isalnum(t[e]) || t[e] == '_'))
+                        e++;
+                    std::string v = clean(t.substr(s, e - s));
+                    static const std::set<std::string> skip = {"role", "count", "player", "voter", "name", "teammates", "role_str", "alive_players", "werewolves", "voted_out", "player_name", "valid_targets"};
+                    if (!v.empty() && !skip.count(v))
+                        varNames.insert(v);
+                    break;
                 }
             }
         }
     };
-
-    scanForVars(result.setup.bodyLines);
-    for (const auto &action : result.actions)
-        scanForVars(action.bodyLines);
-    for (const auto &method : result.methods)
-        scanForVars(method.bodyLines);
-    for (const auto &phase : result.phases)
+    static const std::vector<std::string> engineMembers = {"logger", "players", "all_player_names", "day_number", "killed_player", "last_guarded", "witch_save_used", "witch_poison_used", "role_config"};
+    for (auto &m : engineMembers)
+        varNames.insert(m);
+    static const std::vector<std::string> engineMethods = {"_get_alive_players", "_get_player_by_role", "handle_death", "handle_hunter_shot", "check_game_over", "run_game", "run_phase"};
+    for (auto &m : engineMethods)
     {
-        for (const auto &step : phase.steps)
-            scanForVars(step.bodyLines);
+        varNames.insert(m);
+        methodNames.insert(m);
     }
+    scan(result.setup.bodyLines);
+    for (auto &a : result.actions)
+        scan(a.bodyLines);
+    for (auto &m : result.methods)
+        scan(m.bodyLines);
+    for (auto &p : result.phases)
+        for (auto &s : p.steps)
+            scan(s.bodyLines);
 }
 
 std::string PythonGenerator::indent(int level)
@@ -183,9 +158,38 @@ std::string PythonGenerator::normalizeExpression(const std::string &expr_raw)
     auto replaceRules = [&](std::string &s)
     {
         auto fix = [&](std::string a, std::string b)
-        { size_t p=0; while((p=s.find(a,p))!=std::string::npos) s.replace(p,a.size(),b), p+=b.size(); };
+        {
+            size_t p = 0;
+            bool inQ = false;
+            char qC = 0;
+            while (p < s.size())
+            {
+                if ((s[p] == '"' || s[p] == '\'') && (p == 0 || s[p - 1] != '\\'))
+                {
+                    if (!inQ)
+                    {
+                        inQ = true;
+                        qC = s[p];
+                    }
+                    else if (s[p] == qC)
+                    {
+                        inQ = false;
+                    }
+                    p++;
+                    continue;
+                }
+                if (!inQ && s.compare(p, a.size(), a) == 0)
+                {
+                    s.replace(p, a.size(), b);
+                    p += b.size();
+                }
+                else
+                    p++;
+            }
+        };
         fix("&&", " and ");
         fix("||", " or ");
+        fix("//", " // ");
         fix("!=", "__NE__");
         fix("!", " not ");
         struct Rule
@@ -242,7 +246,11 @@ std::string PythonGenerator::normalizeExpression(const std::string &expr_raw)
                     continue;
                 }
                 if (rl.isL)
-                    s.replace(st, mP + act.size() - st, "len(" + obj + ")");
+                {
+                    std::string r = "len(" + obj + ")";
+                    s.replace(st, mP + act.size() - st, r);
+                    p = st + r.size();
+                }
                 else if (act == "join")
                 {
                     size_t op = s.find('(', mP + act.size());
@@ -269,12 +277,15 @@ std::string PythonGenerator::normalizeExpression(const std::string &expr_raw)
                                 sep = "''";
                             if (sep.size() >= 2 && sep[0] == '"' && sep.back() == '"')
                                 sep = "'" + sep.substr(1, sep.size() - 2) + "'";
-                            s.replace(st, cp + 1 - st, sep + ".join(" + obj + ")");
-                            p = st;
+                            std::string r = sep + ".join(" + obj + ")";
+                            s.replace(st, cp + 1 - st, r);
+                            p = st + r.size();
                             continue;
                         }
                     }
-                    s.replace(st, mP + act.size() - st, "''.join(" + obj + ")");
+                    std::string r = "''.join(" + obj + ")";
+                    s.replace(st, mP + act.size() - st, r);
+                    p = st + r.size();
                 }
                 else
                 {
@@ -288,8 +299,8 @@ std::string PythonGenerator::normalizeExpression(const std::string &expr_raw)
                             r = obj + "." + act;
                     }
                     s.replace(st, mP + act.size() - st, r);
+                    p = st + r.size();
                 }
-                p = st;
             }
         }
     };
@@ -446,9 +457,30 @@ std::string PythonGenerator::normalizeExpression(const std::string &expr_raw)
     out = fin;
     auto fxc = [&](std::string s, std::string r)
     { size_t p=0; while((p=out.find(s,p))!=std::string::npos) out.replace(p,s.size(),r), p+=r.size(); };
-    fxc("get_alive_players(None)", "get_alive_players()");
+    fxc("get_alive_players(", "_get_alive_players(");
+    fxc("get_player_by_role(", "_get_player_by_role(");
     fxc("f \"", "f\"");
     fxc("f \'", "f\'");
+    // Map role strings to Role enum
+    static const std::vector<std::pair<std::string, std::string>> roleMaps = {
+        {"werewolf", "WEREWOLF"}, {"villager", "VILLAGER"}, {"seer", "SEER"}, {"witch", "WITCH"}, {"hunter", "HUNTER"}, {"guard", "GUARD"}};
+    for (auto &rm : roleMaps)
+    {
+        fxc("\"" + rm.first + "\"", "Role." + rm.second + ".value");
+        fxc("\'" + rm.first + "\'", "Role." + rm.second + ".value");
+    }
+
+    // Map death reason strings to DeathReason enum
+    static const std::vector<std::pair<std::string, std::string>> deathMaps = {
+        {"在夜晚被杀害", "KILLED_BY_WEREWOLF"},
+        {"被女巫毒杀", "POISONED_BY_WITCH"},
+        {"被投票出局", "VOTED_OUT"},
+        {"被猎人带走", "SHOT_BY_HUNTER"}};
+    for (auto &dm : deathMaps)
+    {
+        fxc("\"" + dm.first + "\"", "DeathReason." + dm.second);
+        fxc("\'" + dm.first + "\'", "DeathReason." + dm.second);
+    }
     return out;
 }
 
@@ -657,7 +689,40 @@ std::string PythonGenerator::translateBody(const std::vector<std::string> &lines
             size_t s = tm.find('('), e = tm.find_last_of(')');
             if (s != std::string::npos && e != std::string::npos)
             {
-                gLs.push_back({cur, "print(" + transformPrintContent(tm.substr(s + 1, e - s - 1)) + ")"});
+                std::string content = transformPrintContent(tm.substr(s + 1, e - s - 1));
+
+                // Specific handle_death mappings for DSL patterns
+                if (content.find("#!") != std::string::npos)
+                {
+                    if (content.find("被女巫毒杀") != std::string::npos)
+                    {
+                        size_t p1 = content.find("{"), p2 = content.find("}");
+                        if (p1 != std::string::npos && p2 != std::string::npos)
+                        {
+                            std::string target = content.substr(p1 + 1, p2 - p1 - 1);
+                            gLs.push_back({cur, "self.handle_death(" + target + ", DeathReason.POISONED_BY_WITCH)"});
+                            continue;
+                        }
+                    }
+                    else if (content.find("在夜晚被杀害") != std::string::npos)
+                    {
+                        gLs.push_back({cur, "self.handle_death(self.killed_player, DeathReason.KILLED_BY_WEREWOLF)"});
+                        continue;
+                    }
+                    else if (content.find("被投票出局") != std::string::npos)
+                    {
+                        size_t p1 = content.find("{"), p2 = content.find("}");
+                        if (p1 != std::string::npos && p2 != std::string::npos)
+                        {
+                            std::string target = content.substr(p1 + 1, p2 - p1 - 1);
+                            gLs.push_back({cur, "self.handle_death(" + target + ", DeathReason.VOTED_OUT)"});
+                            continue;
+                        }
+                    }
+                }
+
+                gLs.push_back({cur, "print(" + content + ")"});
+                gLs.push_back({cur, "self.logger.log_event(" + content + ", self.all_player_names)"});
                 continue;
             }
         }
@@ -745,97 +810,55 @@ std::string PythonGenerator::generate()
 std::string PythonGenerator::generateImports()
 {
     std::stringstream ss;
-    ss << "\"\"\"\n"
-       << "Generated by Wolf DSL Translator\n"
-       << "Game: " << result.gameName << "\n\"\"\"\n\n";
-    ss << R"(from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from enum import Enum
-import random
-import time
-from typing import List, Dict, Optional, Any, Callable
-import sys
-import json
-import os
-from pathlib import Path
-
-BASE = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(BASE))
-
-try:
-    from src.Logger import GameLogger
-    from src.services.players import Player
-except ImportError:
-    # Mock if not found
-    class GameLogger:
-        def __init__(self, name, players): pass
-        def log_event(self, msg, targets=None): pass
-    class Player:
-        def __init__(self, name, role, config, prompts, logger):
-            self.name = name
-            self.role = role
-            self.is_alive = True
-            self.config = config
-            self.prompts = prompts
-            self.logger = logger
-
-# ==========================================
-# Core Engine Structures
-# ==========================================
-
-from src.engine import ActionContext, GameAction, GameStep, GamePhase
-
-)";
+    ss << "\"\"\"\nGenerated by Wolf DSL Translator\nGame: " << result.gameName << "\n\"\"\"\n\n";
+    ss << "import random\nimport sys\nimport json\nimport time\nfrom pathlib import Path\nfrom enum import Enum\nfrom abc import ABC, abstractmethod\nfrom dataclasses import dataclass, field\nfrom typing import List, Dict, Optional, Any, Callable, Union\n\n";
+    ss << "try:\n"
+       << indent(1) << "from engine import ActionContext, GameAction, GameStep, GamePhase, Role, DeathReason, GameEngine\n"
+       << "except ImportError:\n"
+       << indent(1) << "from .engine import ActionContext, GameAction, GameStep, GamePhase, Role, DeathReason, GameEngine\n\n";
     return ss.str();
 }
 
-std::string PythonGenerator::generateEnums()
-{
-    std::stringstream ss;
-    ss << "class Role(Enum):\n";
-    ss << indent(1) << "ALL = \"all\"\n";
-    for (const auto &r : result.roles)
-    {
-        std::string upper = r;
-        for (auto &c : upper)
-            c = (char)std::toupper((unsigned char)c);
-        ss << indent(1) << upper << " = \"" << r << "\"\n";
-    }
-    ss << "\n";
-
-    ss << R"(class DeathReason(Enum):
-    KILLED_BY_WEREWOLF = "在夜晚被杀害"
-    POISONED_BY_WITCH = "被女巫毒杀"
-    VOTED_OUT = "被投票出局"
-    SHOT_BY_HUNTER = "被猎人带走"
-
-# ==========================================
-# Action Classes
-# ==========================================
-
-)";
-    return ss.str();
-}
+std::string PythonGenerator::generateEnums() { return ""; }
 
 std::string PythonGenerator::generateActionClasses()
 {
     std::stringstream ss;
-    for (const auto &action : result.actions)
+    for (auto &a : result.actions)
     {
-        std::string className = action.name;
-        if (!className.empty())
+        std::string n = a.name, desc = a.name;
+        if (n.empty())
+            continue;
+
+        // CamelCase name for class
+        std::string className = "";
+        bool nextUpper = true;
+        for (char c : n)
         {
-            className[0] = (char)std::toupper((unsigned char)className[0]);
-            className += "Action";
-            ss << "class " << className << "(GameAction):\n";
-            ss << indent(1) << "\"\"\"Action class for DSL action: " << action.name << "\"\"\"\n";
-            ss << indent(1) << "def description(self) -> str:\n";
-            ss << indent(2) << "return \"" << action.name << "\"\n\n";
-            ss << indent(1) << "def execute(self, context: ActionContext) -> Any:\n";
-            ss << indent(2) << "game = context.game\n";
-            ss << indent(2) << "target = context.target\n";
-            ss << indent(2) << "game.action_" << action.name << "(target)\n\n";
+            if (c == '_')
+                nextUpper = true;
+            else
+            {
+                if (nextUpper)
+                {
+                    className += (char)toupper((unsigned char)c);
+                    nextUpper = false;
+                }
+                else
+                    className += c;
+            }
         }
+
+        // Human readable description
+        for (auto &c : desc)
+            if (c == '_')
+                c = ' ';
+        if (desc[0] >= 'a' && desc[0] <= 'z')
+            desc[0] = (char)toupper((unsigned char)desc[0]);
+
+        ss << "class " << className << "Action(GameAction):\n"
+           << indent(1) << "def description(self)->str: return \"" << desc << "\"\n"
+           << indent(1) << "def execute(self, context:ActionContext)->Any: return context.game.action_" << a.name << "(context.target)\n\n";
     }
     return ss.str();
 }
@@ -843,228 +866,123 @@ std::string PythonGenerator::generateActionClasses()
 std::string PythonGenerator::generateGameClass()
 {
     std::stringstream ss;
-    ss << "# ==========================================\n";
-    ss << "# Main Game Class\n";
-    ss << "# ==========================================\n\n";
-    ss << "class " << result.gameName << ":\n";
-    ss << indent(1) << "\"\"\"" << result.gameName << " implementation generated from DSL.\"\"\"\n\n";
-
-    ss << generateInit();
-    ss << generateInitPhases();
-    ss << generateSetupGame();
-    ss << generateCoreHelpers();
-    ss << generateDSLMethods();
-
+    ss << "class " << result.gameName << "(GameEngine):\n"
+       << indent(1) << "\"\"\"" << result.gameName << " implementation.\"\"\"\n\n";
+    ss << generateInit() << generateInitPhases() << generateSetupGame() << generateDSLMethods();
     return ss.str();
 }
 
 std::string PythonGenerator::generateInit()
 {
     std::stringstream ss;
-    ss << indent(1) << "def __init__(self, players: List[Dict[str, str]]):\n";
-    ss << indent(2) << "self.players: Dict[str, Player] = {}\n";
-    ss << indent(2) << "self.roles: Dict[str, str] = {}\n";
-    ss << indent(2) << "self.all_player_names: List[str] = [p.get(\"player_name\", \"\") for p in players]\n";
-    ss << indent(2) << "self.phases: List[GamePhase] = []\n";
-    ss << indent(2) << "self.logger = GameLogger(\"werewolf\", players)\n";
-    ss << indent(2) << "self.game_over = False\n";
-    ss << indent(2) << "# DSL Global Variables\n";
-    for (const auto &pair : result.variables)
+    ss << indent(1) << "def __init__(self, players_data: List[Dict[str, Any]]):\n"
+       << indent(2) << "super().__init__(players_data)\n";
+    for (auto &v : result.variables)
     {
-        // Skip variables that are already initialized as core members
-        std::string name = trimStr(pair.first);
-        // Remove any non-alphanumeric characters from start (like BOM or spaces)
-        while (!name.empty() && !isalnum((unsigned char)name[0]) && name[0] != '_')
-        {
-            name = name.substr(1);
-        }
-        // Also trim from end to be safe
-        while (!name.empty() && !isalnum((unsigned char)name.back()) && name.back() != '_')
-        {
-            name.pop_back();
-        }
-
-        if (name == "all_player_names" || name == "game_over" || name == "players" || name == "roles" || name == "phases" || name == "logger")
-            continue;
-        ss << indent(2) << "self." << name << " = " << toPythonLiteral(pair.second.value) << "\n";
+        std::string n = trimStr(v.first);
+        while (!n.empty() && !isalnum(n[0]) && n[0] != '_')
+            n = n.substr(1);
+        while (!n.empty() && !isalnum(n.back()) && n.back() != '_')
+            n.pop_back();
+        static const std::set<std::string> skp = {"all_player_names", "game_over", "players", "roles", "phases", "logger"};
+        if (!skp.count(n))
+            ss << indent(2) << "self." << n << " = " << toPythonLiteral(v.second.value) << "\n";
     }
-    ss << "\n"
-       << indent(2) << "self._init_phases()\n\n";
-    return ss.str();
+    return ss.str() + indent(2) + "self._init_phases()\n\n";
 }
 
 std::string PythonGenerator::generateInitPhases()
 {
     std::stringstream ss;
     ss << indent(1) << "def _init_phases(self):\n";
-    ss << indent(2) << "\"\"\"Initialize phases and steps from DSL.\"\"\"\n";
     if (result.phases.empty())
+        return ss.str() + indent(2) + "pass\n\n";
+    for (auto &p : result.phases)
     {
-        ss << indent(2) << "pass\n\n";
-    }
-    else
-    {
-        for (const auto &phase : result.phases)
+        ss << indent(2) << p.name << " = GamePhase(\"" << p.name << "\")\n";
+        for (auto &s : p.steps)
         {
-            ss << indent(2) << phase.name << " = GamePhase(\"" << phase.name << "\")\n";
-            for (const auto &step : phase.steps)
+            std::string ac = "None";
+            if (!s.actionName.empty())
             {
-                std::string actionClass = "None";
-                if (!step.actionName.empty())
+                std::string an = s.actionName;
+                ac = "";
+                bool nextUpper = true;
+                for (char c : an)
                 {
-                    actionClass = step.actionName;
-                    actionClass[0] = (char)std::toupper((unsigned char)actionClass[0]);
-                    actionClass += "Action()";
+                    if (c == '_')
+                        nextUpper = true;
+                    else
+                    {
+                        if (nextUpper)
+                        {
+                            ac += (char)toupper((unsigned char)c);
+                            nextUpper = false;
+                        }
+                        else
+                            ac += c;
+                    }
                 }
-                ss << indent(2) << phase.name << ".add_step(GameStep(\"" << step.name << "\", [";
-                for (size_t i = 0; i < step.rolesInvolved.size(); ++i)
-                {
-                    std::string r = step.rolesInvolved[i];
-                    std::string upper = r;
-                    for (auto &c : upper)
-                        c = (char)std::toupper((unsigned char)c);
-                    ss << "Role." << upper << (i == step.rolesInvolved.size() - 1 ? "" : ", ");
-                }
-                ss << "], " << actionClass << "))\n";
+                ac += "Action()";
             }
-            ss << indent(2) << "self.phases.append(" << phase.name << ")\n\n";
+            ss << indent(2) << p.name << ".add_step(GameStep(\"" << s.name << "\", [";
+            for (size_t i = 0; i < s.rolesInvolved.size(); ++i)
+            {
+                std::string r = s.rolesInvolved[i];
+                if (r == "all")
+                {
+                    ss << "Role.ALL";
+                    if (i < s.rolesInvolved.size() - 1)
+                        ss << ", ";
+                    continue;
+                }
+                for (auto &c : r)
+                    c = (char)toupper(c);
+                ss << "Role." << r << (i == s.rolesInvolved.size() - 1 ? "" : ", ");
+            }
+            ss << "], " << ac << "))\n";
         }
+        ss << indent(2) << "self.phases.append(" << p.name << ")\n";
     }
-    return ss.str();
+    return ss.str() + "\n";
 }
 
 std::string PythonGenerator::generateSetupGame()
 {
     std::stringstream ss;
     ss << indent(1) << "def setup_game(self):\n";
-    ss << indent(2) << "\"\"\"Custom game setup logic from DSL.\"\"\"\n";
-
-    // 1. Translated setup block from DSL
-    if (!result.setup.bodyLines.empty())
-    {
-        ss << indent(2) << "# DSL setup block\n";
-        ss << translateBody(result.setup.bodyLines, 2) << "\n";
-    }
-
-    // 2. Generated Player Initialization Logic using role_config from DSL
-    ss << indent(2) << "# Generated Player Initialization\n";
-    ss << indent(2) << "role_list = []\n";
-    ss << indent(2) << "if hasattr(self, 'role_config') and self.role_config:\n";
-    ss << indent(3) << "for role, count in self.role_config.items():\n";
-    ss << indent(3) << "    for _ in range(count):\n";
-    ss << indent(3) << "        role_list.append(role)\n";
-    ss << indent(2) << "else:\n";
-    ss << indent(3) << "# Fallback if role_config is not defined or empty\n";
-    ss << indent(3) << "role_list = [\"villager\"] * len(self.all_player_names)\n";
-    ss << indent(2) << "random.shuffle(role_list)\n\n";
-    ss << indent(2) << "for i, name in enumerate(self.all_player_names):\n";
-    ss << indent(3) << "role_str = role_list[i] if i < len(role_list) else \"villager\"\n";
-    ss << indent(3) << "player = Player(name, role_str, {}, {}, self.logger)\n";
-    ss << indent(3) << "self.players[name] = player\n";
-    ss << indent(3) << "self.roles[name] = role_str\n\n";
-    return ss.str();
-}
-
-std::string PythonGenerator::generateCoreHelpers()
-{
-    std::stringstream ss;
-    ss << R"py(    def get_alive_players(self, roles_filter=None):
-        alive = []
-        for p in self.players.values():
-            if p.is_alive:
-                if roles_filter is None or p.role in roles_filter:
-                    alive.append(p.name)
-        return alive
-
-    def handle_death(self, player_name: str, reason: DeathReason):
-        if player_name in self.players:
-            self.players[player_name].is_alive = False
-        print(f"#! {player_name} {reason.value}")
-
-    def _get_player_by_role(self, role_str: str):
-        for p in self.players.values():
-            if p.role == role_str and p.is_alive:
-                return p
-        return None
-
-    def run_game(self):
-        self.setup_game()
-        while not self.game_over:
-            for phase in self.phases:
-                if self.game_over: break
-                for step in phase.steps:
-                    if self.game_over: break
-                    if step.action is not None:
-                        context = ActionContext(game=self)
-                        step.action.execute(context)
-                    else:
-                        print(f"DEBUG: Skipping step {step.name} (no action defined)")
-        print("Game Over.")
-
-)py";
-    return ss.str();
+    return ss.str() + (result.setup.bodyLines.empty() ? indent(2) + "pass\n\n" : translateBody(result.setup.bodyLines, 2) + "\n");
 }
 
 std::string PythonGenerator::generateDSLMethods()
 {
     std::stringstream ss;
-    auto genMethod = [&](const std::string &prefix, const auto &items)
+    auto gen = [&](std::string pfx, const auto &its)
     {
-        for (const auto &item : items)
+        for (auto &it : its)
         {
-            // Skip hardcoded utility methods that are already in generateCoreHelpers
-            if (prefix == "")
-            {
-                if (item.name == "get_alive_players" ||
-                    item.name == "handle_death" ||
-                    item.name == "_get_player_by_role" ||
-                    item.name == "run_game")
-                    continue;
-            }
-
-            std::string paramsStr = "self";
-            bool hasTarget = false;
-            if (prefix == "action_")
-            {
-                paramsStr += ", target=None";
-                hasTarget = true;
-            }
-
-            for (const auto &param : item.params)
-            {
-                // Avoid duplicating 'target' if it's already in the params
-                if (hasTarget && param.name == "target")
-                    continue;
-                // Add =None to avoid "non-default argument follows default argument" error
-                paramsStr += ", " + param.name + "=None";
-            }
-
-            ss << indent(1) << "def " << prefix << item.name << "(" << paramsStr << "):\n";
-            ss << translateBody(item.bodyLines, 2) << "\n";
+            std::string ps = "self";
+            if (pfx == "action_")
+                ps += ", target=None";
+            for (auto &p : it.params)
+                if (!(pfx == "action_" && p.name == "target"))
+                    ps += ", " + p.name + "=None";
+            ss << indent(1) << "def " << pfx << it.name << "(" << ps << "):\n"
+               << translateBody(it.bodyLines, 2) << "\n";
         }
     };
-
-    genMethod("action_", result.actions);
-    genMethod("", result.methods);
+    gen("action_", result.actions);
+    gen("", result.methods);
     return ss.str();
 }
 
 std::string PythonGenerator::generateEntryPoint()
 {
     std::stringstream ss;
-    ss << R"(if __name__ == "__main__":
-    # Simple test execution
-    players_data = [{'player_name': f'Player{i}'} for i in range(12)]
-    game = )"
-       << result.gameName << R"((players_data)
-    try:
-        game.run_game()
-    except KeyboardInterrupt:
-        print("\nGame terminated by user.")
-    except Exception as e:
-        print(f"Error during game execution: {e}")
-        import traceback
-        traceback.print_exc()
-)";
+    ss << "if __name__ == \"__main__\":\n"
+       << indent(1) << "game = " << result.gameName << "([{'player_name': f'Player{i}'} for i in range(12)])\n"
+       << indent(1) << "try: game.run_game()\n"
+       << indent(1) << "except KeyboardInterrupt: pass\n"
+       << indent(1) << "except Exception as e: print(e); import traceback; traceback.print_exc()\n";
     return ss.str();
 }
