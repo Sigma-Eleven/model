@@ -706,7 +706,6 @@ std::vector<std::string> WolfParser::parseStatementList()
         }
         int stmtLine = current.line;
         std::stringstream line;
-        int stmtLine = current.line;
         while (current.kind != TokenKind::SEMI && current.kind != TokenKind::END &&
                current.kind != TokenKind::LBRACE && current.kind != TokenKind::RBRACE)
         {
