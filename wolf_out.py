@@ -336,8 +336,8 @@ class WerewolfGame:
             else:
                 print(f"#@ 今晚 {self.killed_player} 被杀害了")
                 if  not  self.witch_save_used:
-                    use_save = ""
-                    if use_save == "y":
+                    self.use_save = ""
+                    if self.use_save == "y":
                         self.witch_save_used = True
                         print(f"#@ 你使用解药救了 {self.killed_player}")
                         self.killed_player = ""
@@ -349,7 +349,7 @@ class WerewolfGame:
                 self.witch_poison_used = True
                 print(f"#@ 你使用毒药毒了 {self.target}")
                 if self.killed_player == "":
-                    self.killed_player = target
+                    self.killed_player = self.target
                 else:
                     print(f"#! {self.target} 死了, 原因是被女巫毒杀")
         print("#@ 女巫请闭眼")
@@ -378,7 +378,7 @@ class WerewolfGame:
         self.votes = {
         }
         for player in alive_players:
-            votes[player] = 0
+            self.votes[player] = 0
         for voter in alive_players:
             self.target = ""
             self.votes[self.target] = self.votes[self.target] + 1
@@ -392,11 +392,11 @@ class WerewolfGame:
             elif self.votes[player] == self.max_votes:
                 voted_out_players.append(player)
         if len(voted_out_players) == 1:
-            voted_out = voted_out_players[0]
-            print(f"#! 投票结果: {voted_out} 被投票出局")
+            self.voted_out = voted_out_players[0]
+            print(f"#! 投票结果: {self.voted_out} 被投票出局")
             role = ""
             if role == "hunter":
-                self.handle_hunter_shot(voted_out)
+                self.handle_hunter_shot(self.voted_out)
         else:
             print("#@ 投票平票, 无人出局")
         self.check_game_over()
@@ -411,12 +411,12 @@ class WerewolfGame:
         print(f"猎人可选择带走的玩家: {valid_targets}")
 
     def check_game_over(self):
-        self.alive_werewolves = self.get_alive_players(["werewolf"])
-        self.alive_villagers = self.get_alive_players(["villager", "seer", "witch", "hunter", "guard"])
-        if len(self.alive_werewolves) == 0:
+        alive_werewolves = self.get_alive_players(["werewolf"])
+        alive_villagers = self.get_alive_players(["villager", "seer", "witch", "hunter", "guard"])
+        if len(alive_werewolves) == 0:
             print("游戏结束, 好人阵营胜利!")
             self.game_over = True
-        elif len(self.alive_werewolves) >=len(self.alive_villagers):
+        elif len(alive_werewolves) >=len(alive_villagers):
             print("游戏结束, 狼人阵营胜利!")
             self.game_over = True
 

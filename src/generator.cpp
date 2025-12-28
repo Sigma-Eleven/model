@@ -21,77 +21,95 @@ static std::string trimStr(const std::string &s)
 
 PythonGenerator::PythonGenerator(const WolfParseResult &result) : result(result)
 {
-    auto clean = [](std::string n)
+    auto cleanName = [](const std::string &s) -> std::string
     {
-        n = trimStr(n);
-        while (!n.empty() && !isalnum((unsigned char)n[0]) && n[0] != '_')
-            n = n.substr(1);
-        while (!n.empty() && !isalnum((unsigned char)n.back()) && n.back() != '_')
-            n.pop_back();
-        return n;
+        std::string name = trimStr(s);
+        // Remove any non-alphanumeric characters from start (like BOM or spaces)
+        while (!name.empty() && !isalnum((unsigned char)name[0]) && name[0] != '_')
+        {
+            name = name.substr(1);
+        }
+        // Also trim from end to be safe
+        while (!name.empty() && !isalnum((unsigned char)name.back()) && name.back() != '_')
+        {
+            name.pop_back();
+        }
+        return name;
     };
-    for (auto &v : result.variables)
-        varNames.insert(clean(v.first));
-    for (auto &m : result.methods)
+
+    for (const auto &pair : result.variables)
     {
-        varNames.insert(clean(m.name));
-        methodNames.insert(clean(m.name));
+        varNames.insert(cleanName(pair.first));
     }
-    for (auto &a : result.actions)
+    for (const auto &method : result.methods)
     {
-        varNames.insert(clean(a.name));
-        actionNames.insert(clean(a.name));
+        varNames.insert(cleanName(method.name));
+        methodNames.insert(cleanName(method.name));
+    }
+    for (const auto &action : result.actions)
+    {
+        varNames.insert(cleanName(action.name));
+        actionNames.insert(cleanName(action.name));
     }
 
-    auto scan = [&](const std::vector<std::string> &ls)
+    // Proactively scan bodyLines for variable declarations (e.g. obj role_config)
+    auto scanForVars = [&](const std::vector<std::string> &lines)
     {
-        for (auto &l : ls)
+        for (const auto &line : lines)
         {
-            std::string t = trimStr(l);
-            static const std::vector<std::string> types = {"num", "str", "bool", "obj", "[]"};
-            for (auto &tp : types)
+            std::string trimmed = trimStr(line);
+            if (trimmed.empty())
+                continue;
+
+            static const std::vector<std::string> types = {"num", "str", "bool", "obj", "num[]", "str[]", "bool[]", "obj[]", "[]", "[ ]"};
+            for (const auto &t : types)
             {
-                if (t.find(tp) == 0 && (t.size() == tp.size() || !isalnum(t[tp.size()])))
+                // Match type followed by space or [
+                if (trimmed.compare(0, t.length(), t) == 0)
                 {
-                    size_t s = tp.size();
-                    while (s < t.size() && (isspace(t[s]) || t[s] == '[' || t[s] == ']'))
-                        s++;
-                    size_t e = s;
-                    while (e < t.size() && (isalnum(t[e]) || t[e] == '_'))
-                        e++;
-                    std::string v = clean(t.substr(s, e - s));
-                    static const std::set<std::string> skip = {
-                        "role", "count", "player", "voter", "name", "teammates", "role_str",
-                        "alive_players", "werewolves", "voted_out", "player_name", "valid_targets",
-                        "target", "identity", "use_save", "use_poison", "votes", "max_votes",
-                        "voted_out_players", "speech", "content"};
-                    if (!v.empty() && !skip.count(v))
-                        varNames.insert(v);
-                    break;
+                    size_t nextCharPos = t.length();
+                    if (nextCharPos < trimmed.length() && (trimmed[nextCharPos] == ' ' || trimmed[nextCharPos] == '['))
+                    {
+                        size_t start = nextCharPos;
+                        while (start < trimmed.length() && (trimmed[start] == ' ' || trimmed[start] == '[' || trimmed[start] == ']'))
+                            start++;
+
+                        size_t end = start;
+                        while (end < trimmed.length() && (isalnum((unsigned char)trimmed[end]) || trimmed[end] == '_'))
+                            end++;
+
+                        if (end > start)
+                        {
+                            std::string var = cleanName(trimmed.substr(start, end - start));
+
+                            // Exclude common local variables to match wolf_out.py
+                            static const std::set<std::string> localVars = {
+                                "role", "count", "player", "voter", "name", "teammates",
+                                "role_str", "alive_players", "werewolves", "voted_out_players",
+                                "voted_out", "player_name", "valid_targets", "role_list"};
+
+                            if (!var.empty() && localVars.find(var) == localVars.end())
+                            {
+                                varNames.insert(var);
+                            }
+                        }
+                        break;
+                    }
                 }
             }
         }
     };
-    static const std::vector<std::string> engineMembers = {"logger", "players", "all_player_names", "day_number", "killed_player", "last_guarded", "witch_save_used", "witch_poison_used", "role_config"};
-    for (auto &m : engineMembers)
-        varNames.insert(m);
-    static const std::vector<std::string> engineMethods = {
-        "_get_alive_players", "_get_player_by_role", "handle_death",
-        "handle_hunter_shot", "check_game_over", "run_game", "run_phase",
-        "get_alive_players", "get_player_by_role"};
-    for (auto &m : engineMethods)
+
+    scanForVars(result.setup.bodyLines);
+    for (const auto &action : result.actions)
+        scanForVars(action.bodyLines);
+    for (const auto &method : result.methods)
+        scanForVars(method.bodyLines);
+    for (const auto &phase : result.phases)
     {
-        varNames.insert(m);
-        methodNames.insert(m);
+        for (const auto &step : phase.steps)
+            scanForVars(step.bodyLines);
     }
-    scan(result.setup.bodyLines);
-    for (auto &a : result.actions)
-        scan(a.bodyLines);
-    for (auto &m : result.methods)
-        scan(m.bodyLines);
-    for (auto &p : result.phases)
-        for (auto &s : p.steps)
-            scan(s.bodyLines);
 }
 
 std::string PythonGenerator::indent(int level)
@@ -158,345 +176,490 @@ std::string PythonGenerator::normalizeExpression(const std::string &expr_raw)
     std::string expr = trimStr(expr_raw);
     if (expr.empty())
         return "";
+
+    // 1. 处理数组字面量
     if (expr == "[]" || expr == "[ ]")
         return "[]";
 
-    // 1. Logic operators & Method replacements
-    auto replaceRules = [&](std::string &s)
+    // 2. 处理 &&, ||, ! (避免在字符串内处理)
+    std::string processed;
+    bool inExprQuote = false;
+    char exprQuoteChar = 0;
+    for (size_t i = 0; i < expr.size(); ++i)
     {
-        auto fix = [&](std::string a, std::string b)
+        if ((expr[i] == '"' || expr[i] == '\'') && (i == 0 || expr[i - 1] != '\\'))
         {
-            size_t p = 0;
-            bool inQ = false;
-            char qC = 0;
-            while (p < s.size())
+            if (!inExprQuote)
             {
-                if ((s[p] == '"' || s[p] == '\'') && (p == 0 || s[p - 1] != '\\'))
-                {
-                    if (!inQ)
-                    {
-                        inQ = true;
-                        qC = s[p];
-                    }
-                    else if (s[p] == qC)
-                    {
-                        inQ = false;
-                    }
-                    p++;
-                    continue;
-                }
-                if (!inQ && s.compare(p, a.size(), a) == 0)
-                {
-                    s.replace(p, a.size(), b);
-                    p += b.size();
-                }
-                else
-                    p++;
+                inExprQuote = true;
+                exprQuoteChar = expr[i];
             }
-        };
-        fix("&&", " and ");
-        fix("||", " or ");
-        fix("//", " // ");
-        fix("!=", "__NE__");
-        fix("!", " not ");
-        struct Rule
-        {
-            std::string m;
-            std::string r;
-            bool isL;
-        };
-        std::vector<Rule> rules = {{".length", "", true}, {".push", ".append", false}, {".join", "", false}, {".values", "()", false}, {".keys", "()", false}, {".items", "()", false}, {".capitalize", "()", false}};
-        for (auto &rl : rules)
-        {
-            size_t p = 0;
-            while ((p = s.find('.', p)) != std::string::npos)
+            else if (expr[i] == exprQuoteChar)
             {
-                size_t mP = p + 1;
-                while (mP < s.size() && s[mP] == ' ')
-                    mP++;
-                std::string act = rl.m.substr(1);
-                if (s.compare(mP, act.size(), act) != 0 || (mP + act.size() < s.size() && (isalnum(s[mP + act.size()]) || s[mP + act.size()] == '_')))
+                inExprQuote = false;
+            }
+            processed += expr[i];
+            continue;
+        }
+        if (inExprQuote)
+        {
+            processed += expr[i];
+            continue;
+        }
+
+        if (expr.compare(i, 2, "&&") == 0)
+        {
+            processed += " and ";
+            i++;
+        }
+        else if (expr.compare(i, 2, "||") == 0)
+        {
+            processed += " or ";
+            i++;
+        }
+        else if (expr[i] == '!')
+        {
+            if (i + 1 < expr.size() && expr[i + 1] == '=')
+            {
+                processed += "__NE__";
+                i++;
+            }
+            else
+            {
+                processed += " not ";
+            }
+        }
+        else
+            processed += expr[i];
+    }
+    expr = processed;
+
+    // 3. 处理 .length, .push, .join, .values, .items, .keys (带空格的情况)
+    auto replaceMethod = [&](std::string &s, const std::string &method, const std::string &replacement, bool isLen = false)
+    {
+        size_t p = 0;
+        while (true)
+        {
+            // 查找 method，允许点前后有空格
+            size_t dotPos = s.find('.', p);
+            if (dotPos == std::string::npos)
+                break;
+
+            // 检查 dot 后面是否跟着 method 名 (跳过空格)
+            size_t methodNamePos = dotPos + 1;
+            while (methodNamePos < s.size() && s[methodNamePos] == ' ')
+                methodNamePos++;
+
+            std::string actualMethod = method.substr(1); // remove leading dot
+            if (s.compare(methodNamePos, actualMethod.length(), actualMethod) != 0)
+            {
+                p = dotPos + 1;
+                continue;
+            }
+
+            // 检查 method 后面是否是标识符字符
+            size_t endOfMethod = methodNamePos + actualMethod.length();
+            if (endOfMethod < s.size() && (std::isalnum((unsigned char)s[endOfMethod]) || s[endOfMethod] == '_'))
+            {
+                p = endOfMethod;
+                continue;
+            }
+
+            // 找到对象名 (向左找)
+            size_t start = dotPos;
+            while (start > 0 && (s[start - 1] == ' '))
+                start--;
+
+            size_t endOfObj = start;
+            int parenDepth = 0;
+            while (start > 0)
+            {
+                char prev = s[start - 1];
+                if (prev == ')')
+                    parenDepth++;
+                else if (prev == '(')
+                    parenDepth--;
+
+                if (parenDepth == 0)
                 {
-                    p++;
-                    continue;
-                }
-                size_t st = p;
-                while (st > 0 && s[st - 1] == ' ')
-                    st--;
-                size_t endObj = st;
-                int d = 0;
-                while (st > 0)
-                {
-                    char pv = s[st - 1];
-                    if (pv == ')')
-                        d++;
-                    else if (pv == '(')
-                        d--;
-                    if (d == 0 && !(isalnum(pv) || pv == '_' || pv == '.' || pv == '[' || pv == ']' || pv == ' '))
+                    if (!(std::isalnum((unsigned char)prev) || prev == '_' || prev == '.' || prev == '[' || prev == ']' || prev == ' '))
                         break;
-                    static const std::vector<std::string> kw = {"if ", "elif ", "for ", "while ", "return ", "else "};
-                    bool fnd = false;
-                    for (auto &k : kw)
-                        if (st >= k.size() && s.substr(st - k.size(), k.size()) == k)
+
+                    // 检查是否是关键字，如果是则停止
+                    if (start >= 3 && s.substr(start - 1, 3) == "if ")
+                        break;
+                    if (start >= 5 && s.substr(start - 1, 5) == "elif ")
+                        break;
+                    if (start >= 4 && s.substr(start - 1, 4) == "for ")
+                        break;
+                    if (start >= 6 && s.substr(start - 1, 6) == "while ")
+                        break;
+                    if (start >= 7 && s.substr(start - 1, 7) == "return ")
+                        break;
+                }
+                start--;
+            }
+
+            std::string obj = trimStr(s.substr(start, endOfObj - start));
+            if (obj.empty())
+            {
+                p = endOfMethod;
+                continue;
+            }
+
+            // 再次检查 obj 是否以关键字开头，如果是则裁剪
+            static const std::vector<std::string> keywords = {"if ", "elif ", "for ", "while ", "return ", "else "};
+            for (const auto &kw : keywords)
+            {
+                if (obj.compare(0, kw.length(), kw) == 0)
+                {
+                    obj = trimStr(obj.substr(kw.length()));
+                    start += kw.length();
+                    break;
+                }
+            }
+
+            if (obj.empty())
+            {
+                p = endOfMethod;
+                continue;
+            }
+
+            if (isLen)
+            {
+                std::string rep = "len(" + obj + ")";
+                s.replace(start, endOfMethod - start, rep);
+                p = start + rep.length();
+            }
+            else if (actualMethod == "join")
+            {
+                // 特殊处理 join: list.join(",") -> ",".join(list)
+                size_t openParen = s.find('(', endOfMethod);
+                if (openParen != std::string::npos && openParen < endOfMethod + 5)
+                {
+                    int depth = 1;
+                    size_t closeParen = std::string::npos;
+                    for (size_t i = openParen + 1; i < s.size(); ++i)
+                    {
+                        if (s[i] == '(')
+                            depth++;
+                        else if (s[i] == ')')
+                            depth--;
+                        if (depth == 0)
                         {
-                            fnd = true;
+                            closeParen = i;
                             break;
                         }
-                    if (fnd)
-                        break;
-                    st--;
-                }
-                std::string obj = trimStr(s.substr(st, endObj - st));
-                if (obj.empty())
-                {
-                    p = mP + act.size();
-                    continue;
-                }
-                if (rl.isL)
-                {
-                    std::string r = "len(" + obj + ")";
-                    s.replace(st, mP + act.size() - st, r);
-                    p = st + r.size();
-                }
-                else if (act == "join")
-                {
-                    size_t op = s.find('(', mP + act.size());
-                    if (op != std::string::npos && op < mP + act.size() + 5)
-                    {
-                        int d = 1;
-                        size_t cp = std::string::npos;
-                        for (size_t i = op + 1; i < s.size(); ++i)
-                        {
-                            if (s[i] == '(')
-                                d++;
-                            else if (s[i] == ')')
-                                d--;
-                            if (d == 0)
-                            {
-                                cp = i;
-                                break;
-                            }
-                        }
-                        if (cp != std::string::npos)
-                        {
-                            std::string sep = trimStr(s.substr(op + 1, cp - op - 1));
-                            if (sep.empty())
-                                sep = "''";
-                            if (sep.size() >= 2 && sep[0] == '"' && sep.back() == '"')
-                                sep = "'" + sep.substr(1, sep.size() - 2) + "'";
-                            std::string r = sep + ".join(" + obj + ")";
-                            s.replace(st, cp + 1 - st, r);
-                            p = st + r.size();
-                            continue;
-                        }
                     }
-                    std::string r = "''.join(" + obj + ")";
-                    s.replace(st, mP + act.size() - st, r);
-                    p = st + r.size();
+
+                    if (closeParen != std::string::npos)
+                    {
+                        std::string sep = trimStr(s.substr(openParen + 1, closeParen - openParen - 1));
+                        if (sep.empty())
+                            sep = "''";
+                        // 如果 sep 是双引号包围的，改为单引号，避免 f-string 冲突
+                        if (sep.size() >= 2 && sep.front() == '"' && sep.back() == '"')
+                            sep = "'" + sep.substr(1, sep.size() - 2) + "'";
+
+                        std::string rep = sep + ".join(" + obj + ")";
+                        s.replace(start, closeParen + 1 - start, rep);
+                        p = start + rep.length();
+                        continue;
+                    }
+                }
+                std::string rep = "''.join(" + obj + ")";
+                s.replace(start, endOfMethod - start, rep);
+                p = start + rep.length();
+            }
+            else
+            {
+                // 通用处理: obj.method -> obj.replacement (如果 replacement 以 . 开头)
+                // 或者 obj.method -> obj.method + replacement (如果 replacement 是后缀如 ())
+                std::string rep;
+                if (replacement.size() > 0 && replacement[0] == '.')
+                {
+                    // 替换方法名: .push -> .append
+                    rep = obj + replacement;
                 }
                 else
                 {
-                    std::string r = (rl.r[0] == '.') ? (obj + rl.r) : (obj + "." + act + rl.r);
-                    if (rl.r == "()")
+                    // 添加后缀: .values -> .values()
+                    // 检查是否已经有括号 (跳过可能的空格)
+                    size_t parenCheck = endOfMethod;
+                    while (parenCheck < s.size() && s[parenCheck] == ' ')
+                        parenCheck++;
+                    bool hasParens = (parenCheck < s.size() && s[parenCheck] == '(');
+
+                    if (hasParens && (replacement == "()" || replacement.empty()))
                     {
-                        size_t pc = mP + act.size();
-                        while (pc < s.size() && s[pc] == ' ')
-                            pc++;
-                        if (pc < s.size() && s[pc] == '(')
-                            r = obj + "." + act;
+                        rep = obj + "." + actualMethod;
                     }
-                    s.replace(st, mP + act.size() - st, r);
-                    p = st + r.size();
+                    else
+                    {
+                        rep = obj + "." + actualMethod + replacement;
+                    }
                 }
+                s.replace(start, endOfMethod - start, rep);
+                p = start + rep.length();
             }
         }
     };
-    replaceRules(expr);
 
-    // 2. Prefixing (self.)
-    std::string out, tok;
-    bool inQ = 0, isF = 0, inI = 0;
-    char qC = 0;
-    int bD = 0;
-    auto flsh = [&]()
+    replaceMethod(expr, ".length", "", true);
+    replaceMethod(expr, ".push", ".append");
+    replaceMethod(expr, ".join", "");
+    replaceMethod(expr, ".values", "()");
+    replaceMethod(expr, ".keys", "()");
+    replaceMethod(expr, ".items", "()");
+    replaceMethod(expr, ".capitalize", "()");
+
+    // 4. 词法解析，处理变量前缀 self.
+    std::string out;
+    bool inQuote = false;
+    char quoteChar = 0;
+    std::string currentToken;
+
+    auto flushToken = [&]()
     {
-        if (tok.empty())
+        if (currentToken.empty())
             return;
-        std::string low = tok;
+        std::string low = currentToken;
         for (auto &c : low)
-            c = (char)tolower(c);
+            c = (char)std::tolower(c);
+
         if (low == "true")
             out += "True";
         else if (low == "false")
             out += "False";
         else if (low == "null")
             out += "None";
-        else if (varNames.count(tok))
+        else if (varNames.count(currentToken))
         {
-            if (out.size() < 5 || out.substr(out.size() - 5) != "self.")
-                out += "self.";
-            out += tok;
+            // Avoid double-prefixing
+            bool alreadyPrefixed = false;
+            if (out.size() >= 5 && out.substr(out.size() - 5) == "self.")
+                alreadyPrefixed = true;
+
+            if (alreadyPrefixed)
+                out += currentToken;
+            else
+                out += "self." + currentToken;
         }
         else
-            out += tok;
-        tok = "";
+            out += currentToken;
+        currentToken = "";
     };
+
+    bool isFString = false;
+    bool inInterpolation = false;
+    int braceDepth = 0;
+
     for (size_t i = 0; i < expr.size(); ++i)
     {
         char c = expr[i];
         if ((c == '"' || c == '\'') && (i == 0 || expr[i - 1] != '\\'))
         {
-            if (!inQ)
+            if (!inQuote)
             {
-                isF = (i > 0 && (expr[i - 1] == 'f' || expr[i - 1] == 'F')) || (i > 1 && expr[i - 1] == ' ' && (expr[i - 2] == 'f' || expr[i - 2] == 'F'));
-                flsh();
-                inQ = 1;
-                qC = c;
+                // Check for f-string prefix
+                bool isF = false;
+                if (i > 0 && (expr[i - 1] == 'f' || expr[i - 1] == 'F'))
+                    isF = true;
+                else if (i > 1 && expr[i - 1] == ' ' && (expr[i - 2] == 'f' || expr[i - 2] == 'F'))
+                    isF = true;
+
+                isFString = isF;
+
+                flushToken();
+                inQuote = true;
+                quoteChar = c;
                 out += c;
             }
-            else if (c == qC && !inI)
+            else if (c == quoteChar && !inInterpolation)
             {
-                inQ = 0;
-                isF = 0;
+                inQuote = false;
+                isFString = false;
                 out += c;
             }
             else
                 out += c;
         }
-        else if (inQ)
+        else if (inQuote)
         {
-            if (isF && c == '{')
+            if (isFString)
             {
-                if (i + 1 < expr.size() && expr[i + 1] == '{')
+                if (c == '{')
                 {
-                    out += "{{";
-                    i++;
+                    if (i + 1 < expr.size() && expr[i + 1] == '{')
+                    {
+                        out += "{{";
+                        i++;
+                        continue;
+                    }
+                    if (!inInterpolation)
+                    {
+                        inInterpolation = true;
+                        braceDepth = 1;
+                        out += c;
+                        continue;
+                    }
+                    else
+                    {
+                        braceDepth++;
+                    }
                 }
-                else if (!inI)
+                else if (c == '}')
                 {
-                    inI = 1;
-                    bD = 1;
-                    out += c;
+                    if (i + 1 < expr.size() && expr[i + 1] == '}')
+                    {
+                        out += "}}";
+                        i++;
+                        continue;
+                    }
+                    if (inInterpolation)
+                    {
+                        braceDepth--;
+                        if (braceDepth == 0)
+                        {
+                            inInterpolation = false;
+                            flushToken();
+                            out += c;
+                            continue;
+                        }
+                    }
                 }
-                else
-                    bD++;
             }
-            else if (isF && c == '}' && inI)
+
+            if (inInterpolation)
             {
-                if (i + 1 < expr.size() && expr[i + 1] == '}')
-                {
-                    out += "}}";
-                    i++;
-                }
-                else if (--bD == 0)
-                {
-                    inI = 0;
-                    flsh();
-                    out += c;
-                }
-                else
-                    out += c;
-            }
-            else if (inI)
-            {
-                if (isalnum(c) || c == '_')
-                    tok += c;
+                if (std::isalnum((unsigned char)c) || c == '_')
+                    currentToken += c;
                 else
                 {
-                    flsh();
+                    flushToken();
                     out += c;
                 }
             }
             else
+            {
                 out += c;
+            }
         }
-        else if (isalnum(c) || c == '_')
-            tok += c;
+        else if (std::isalnum((unsigned char)c) || c == '_')
+            currentToken += c;
         else
         {
-            flsh();
+            flushToken();
             out += c;
         }
     }
-    flsh();
-    replaceRules(out);
+    flushToken();
 
-    // 3. Final cleanup
-    size_t p = 0;
-    while ((p = out.find("__NE__", p)) != std::string::npos)
-        out.replace(p, 6, "!="), p += 2;
-    int oC = 0;
+    // 4.5 再次处理 .length, .push, .join (在添加了 self. 之后)
+    replaceMethod(out, ".length", "", true);
+    replaceMethod(out, ".push", ".append");
+    replaceMethod(out, ".join", "");
+
+    // 4.6 处理 max, sum 等全局函数 (如果需要添加 self. 的话)
+    // 检查 max(..., player_count) -> max(..., self.player_count)
+    // 词法解析已经处理了 player_count -> self.player_count
+
+    // 5. 恢复 !=
+    size_t pos = 0;
+    while ((pos = out.find("__NE__", pos)) != std::string::npos)
+    {
+        out.replace(pos, 6, "!=");
+        pos += 2;
+    }
+
+    // 6. 修复括号不匹配 (例如 max ( 1, self.player_count 没有闭括号)
+    int openCount = 0;
     for (char c : out)
+    {
         if (c == '(')
-            oC++;
+            openCount++;
         else if (c == ')')
-            oC--;
-    while (oC > 0)
-        out += " )", oC--;
-    while (oC < 0)
-    {
-        size_t f = out.find(')');
-        if (f != std::string::npos)
-            out.erase(f, 1);
-        oC++;
+            openCount--;
     }
-    size_t qP = out.find('?'), cP = out.find(':', qP);
-    if (qP != std::string::npos && cP != std::string::npos)
+    while (openCount > 0)
     {
-        size_t eP = out.find('=');
-        std::string pfx = "", act = out;
-        if (eP != std::string::npos && eP < qP)
-            pfx = out.substr(0, eP + 1) + " ", act = out.substr(eP + 1), qP -= (eP + 1), cP -= (eP + 1);
-        out = pfx + trimStr(act.substr(qP + 1, cP - qP - 1)) + " if " + trimStr(act.substr(0, qP)) + " else " + trimStr(act.substr(cP + 1));
+        out += " )";
+        openCount--;
     }
-    std::string fin;
+    while (openCount < 0)
+    {
+        // 这通常不应该发生，但为了鲁棒性处理一下
+        size_t firstParen = out.find(')');
+        if (firstParen != std::string::npos)
+            out.erase(firstParen, 1);
+        openCount++;
+    }
+
+    // 6. 处理三元运算符 cond ? a : b -> a if cond else b
+    size_t qPos = out.find('?');
+    if (qPos != std::string::npos)
+    {
+        size_t cPos = out.find(':', qPos);
+        if (cPos != std::string::npos)
+        {
+            // 找到 = 号，如果有的话，要把 = 之后的部分作为三元运算
+            size_t eqPos = out.find('=');
+            std::string prefix = "";
+            std::string actualExpr = out;
+            if (eqPos != std::string::npos && eqPos < qPos)
+            {
+                prefix = out.substr(0, eqPos + 1) + " ";
+                actualExpr = out.substr(eqPos + 1);
+                qPos -= (eqPos + 1);
+                cPos -= (eqPos + 1);
+            }
+
+            std::string cond = trimStr(actualExpr.substr(0, qPos));
+            std::string valA = trimStr(actualExpr.substr(qPos + 1, cPos - qPos - 1));
+            std::string valB = trimStr(actualExpr.substr(cPos + 1));
+            out = prefix + valA + " if " + cond + " else " + valB;
+        }
+    }
+
+    // 6.2 清理多余空格 (例如 ( None ) -> (None), func ( -> func()
+    std::string final_out;
     for (size_t i = 0; i < out.size(); ++i)
     {
         if (out[i] == ' ')
         {
+            // 如果空格后面是 ( ) , [ ] . 则跳过
             if (i + 1 < out.size() && (out[i + 1] == '(' || out[i + 1] == ')' || out[i + 1] == ',' || out[i + 1] == ']' || out[i + 1] == '[' || out[i + 1] == '.'))
                 continue;
+            // 如果空格前面是 ( [ . 则跳过
             if (i > 0 && (out[i - 1] == '(' || out[i - 1] == '[' || out[i - 1] == '.'))
                 continue;
         }
-        fin += out[i];
+        final_out += out[i];
     }
-    out = fin;
-    auto fxc = [&](std::string s, std::string r)
-    { size_t p=0; while((p=out.find(s,p))!=std::string::npos) out.replace(p,s.size(),r), p+=r.size(); };
-    fxc("get_alive_players(", "_get_alive_players(");
-    fxc("get_player_by_role(", "_get_player_by_role(");
-    fxc("f \"", "f\"");
-    fxc("f \'", "f\'");
-    // Map role strings to Role enum
-    static const std::vector<std::pair<std::string, std::string>> roleMaps = {
-        {"werewolf", "WEREWOLF"}, {"villager", "VILLAGER"}, {"seer", "SEER"}, {"witch", "WITCH"}, {"hunter", "HUNTER"}, {"guard", "GUARD"}, {"civilian", "CIVILIAN"}, {"spy", "SPY"}};
-    for (auto &rm : roleMaps)
+    out = final_out;
+
+    // 6.3 修复 get_alive_players(None) -> get_alive_players()
+    size_t gapPos = 0;
+    while ((gapPos = out.find("get_alive_players(None)", gapPos)) != std::string::npos)
     {
-        fxc("\"" + rm.first + "\"", "Role." + rm.second + ".value");
-        fxc("\'" + rm.first + "\'", "Role." + rm.second + ".value");
+        out.replace(gapPos, 23, "get_alive_players()");
+        gapPos += 18;
     }
 
-    // Also map any roles defined in DSL enum block
-    for (auto &r : result.roles)
+    // 6.4 修复 f " -> f" (parser 可能引入的空格)
+    size_t fPos = 0;
+    while ((fPos = out.find("f \"", fPos)) != std::string::npos)
     {
-        std::string upperR = r;
-        std::transform(upperR.begin(), upperR.end(), upperR.begin(), ::toupper);
-        fxc("\"" + r + "\"", "Role." + upperR + ".value");
-        fxc("\'" + r + "\'", "Role." + upperR + ".value");
+        out.replace(fPos, 3, "f\"");
+        fPos += 2;
+    }
+    fPos = 0;
+    while ((fPos = out.find("f \'", fPos)) != std::string::npos)
+    {
+        out.replace(fPos, 3, "f\'");
+        fPos += 2;
     }
 
-    // Map death reason strings to DeathReason enum
-    static const std::vector<std::pair<std::string, std::string>> deathMaps = {
-        {"在夜晚被杀害", "KILLED_BY_WEREWOLF"},
-        {"被女巫毒杀", "POISONED_BY_WITCH"},
-        {"被投票出局", "VOTED_OUT"},
-        {"被猎人带走", "SHOT_BY_HUNTER"}};
-    for (auto &dm : deathMaps)
-    {
-        fxc("\"" + dm.first + "\"", "DeathReason." + dm.second);
-        fxc("\'" + dm.first + "\'", "DeathReason." + dm.second);
-    }
     return out;
 }
 
@@ -505,321 +668,591 @@ std::string PythonGenerator::transformPrintContent(const std::string &inner)
     std::string s = trimStr(inner);
     if (s.empty())
         return "''";
-    size_t nl = 0;
-    while ((nl = s.find('\n', nl)) != std::string::npos)
-        s.replace(nl, 1, "\\n"), nl += 2;
-    auto split = [&](const std::string &str)
+
+    // 1. 处理换行符
+    size_t nlPos = 0;
+    while ((nlPos = s.find('\n', nlPos)) != std::string::npos)
     {
-        std::vector<std::string> pts;
-        size_t st = 0;
-        bool inQ = 0;
-        char qC = 0;
-        int bL = 0;
-        for (size_t i = 0; i < str.size(); ++i)
+        s.replace(nlPos, 1, "\\n");
+        nlPos += 2;
+    }
+
+    // 2. 检查是否包含字符串拼接 (+)。
+    // 必须确保 + 不在引号内，且不在括号内（简单处理）。
+    bool hasPlus = false;
+    bool inQ = false;
+    char qC = 0;
+    int bL = 0;
+    for (size_t i = 0; i < s.size(); ++i)
+    {
+        if ((s[i] == '"' || s[i] == '\'') && (i == 0 || s[i - 1] != '\\'))
         {
-            if ((str[i] == '"' || str[i] == '\'') && (i == 0 || str[i - 1] != '\\'))
+            if (!inQ)
+            {
+                inQ = true;
+                qC = s[i];
+            }
+            else if (s[i] == qC)
+                inQ = false;
+        }
+        if (!inQ)
+        {
+            if (s[i] == '(')
+                bL++;
+            else if (s[i] == ')')
+                bL--;
+            else if (s[i] == '+' && bL == 0)
+            {
+                hasPlus = true;
+                break;
+            }
+        }
+    }
+
+    if (hasPlus)
+    {
+        std::vector<std::string> parts;
+        size_t start = 0;
+        inQ = false;
+        qC = 0;
+        bL = 0;
+        for (size_t i = 0; i < s.size(); ++i)
+        {
+            if ((s[i] == '"' || s[i] == '\'') && (i == 0 || s[i - 1] != '\\'))
             {
                 if (!inQ)
                 {
-                    inQ = 1;
-                    qC = str[i];
+                    inQ = true;
+                    qC = s[i];
                 }
-                else if (str[i] == qC)
-                    inQ = 0;
+                else if (s[i] == qC)
+                    inQ = false;
             }
             if (!inQ)
             {
-                if (str[i] == '(')
+                if (s[i] == '(')
                     bL++;
-                else if (str[i] == ')')
+                else if (s[i] == ')')
                     bL--;
-                else if (str[i] == '+' && bL == 0)
+                else if (s[i] == '+' && bL == 0)
                 {
-                    pts.push_back(trimStr(str.substr(st, i - st)));
-                    st = i + 1;
+                    parts.push_back(trimStr(s.substr(start, i - start)));
+                    start = i + 1;
                 }
             }
         }
-        pts.push_back(trimStr(str.substr(st)));
-        return pts;
-    };
-    auto pts = split(s);
-    if (pts.size() <= 1)
-        return normalizeExpression(s);
-    std::string f = "f\"";
-    for (auto &p : pts)
-    {
-        if (p.empty())
-            continue;
-        std::string cp = p;
-        if (cp.size() >= 3 && (cp[0] == 'f' || cp[0] == 'F'))
+        parts.push_back(trimStr(s.substr(start)));
+
+        std::string f = "f\"";
+        for (auto &part : parts)
         {
-            size_t qP = cp.find_first_of("\"'");
-            if (qP != std::string::npos && qP > 1)
-                cp = cp.substr(0, 1) + cp.substr(qP);
-        }
-        bool isL = (cp.front() == '"' && cp.back() == '"') || (cp.front() == '\'' && cp.back() == '\'');
-        bool isFL = !isL && cp.size() >= 3 && (cp[0] == 'f' || cp[0] == 'F') && ((cp[1] == '"' && cp.back() == '"') || (cp[1] == '\'' && cp.back() == '\''));
-        if (isL || isFL)
-        {
-            std::string lit = cp.substr(isL ? 1 : 2, cp.size() - (isL ? 2 : 3));
-            for (char c : lit)
+            if (part.empty())
+                continue;
+
+            // 检查是否是字符串字面量 (可能带有 f 前缀)
+            bool isLiteral = false;
+            std::string literalContent;
+
+            // 修复: parser 可能在 f 和 string 之间加了空格
+            std::string cleanPart = part;
+            if (cleanPart.size() >= 3 && (cleanPart[0] == 'f' || cleanPart[0] == 'F'))
             {
-                if (c == '{')
-                    f += "{{";
-                else if (c == '}')
-                    f += "}}";
-                else
-                    f += c;
+                size_t qPos = cleanPart.find_first_of("\"'");
+                if (qPos != std::string::npos)
+                {
+                    // 移除 f 和 引号之间的空格
+                    if (qPos > 1)
+                    {
+                        cleanPart = cleanPart.substr(0, 1) + cleanPart.substr(qPos);
+                    }
+                }
+            }
+
+            if ((cleanPart.front() == '"' && cleanPart.back() == '"') || (cleanPart.front() == '\'' && cleanPart.back() == '\''))
+            {
+                isLiteral = true;
+                literalContent = cleanPart.substr(1, cleanPart.size() - 2);
+            }
+            else if (cleanPart.size() >= 2 && (cleanPart[0] == 'f' || cleanPart[0] == 'F') &&
+                     ((cleanPart[1] == '"' && cleanPart.back() == '"') || (cleanPart[1] == '\'' && cleanPart.back() == '\'')))
+            {
+                isLiteral = true;
+                literalContent = cleanPart.substr(2, cleanPart.size() - 3);
+            }
+
+            if (isLiteral)
+            {
+                // 逃逸 f-string 中的大括号
+                std::string escaped;
+                for (char c : literalContent)
+                {
+                    if (c == '{')
+                        escaped += "{{";
+                    else if (c == '}')
+                        escaped += "}}";
+                    else
+                        escaped += c;
+                }
+                f += escaped;
+            }
+            else
+            {
+                f += "{" + normalizeExpression(part) + "}";
             }
         }
-        else
-            f += "{" + normalizeExpression(p) + "}";
+        f += "\"";
+        return f;
     }
-    return f + "\"";
+
+    return normalizeExpression(s);
 }
 
 std::string PythonGenerator::translateBody(const std::vector<std::string> &lines, int indentLevel)
 {
     if (lines.empty())
         return indent(indentLevel) + "pass\n";
+
     struct GenLine
     {
-        int idt;
-        std::string ct;
-        bool isD = false;
+        int indent;
+        std::string content;
+        bool isDict = false;
     };
-    std::vector<GenLine> gLs;
-    int cur = indentLevel;
-    bool inD = false;
-    for (auto line : lines)
+    std::vector<GenLine> genLines;
+    int currentIndent = indentLevel;
+    bool inDict = false;
+
+    for (size_t lineIdx = 0; lineIdx < lines.size(); ++lineIdx)
     {
-        std::string tm = line;
-        tm.erase(std::remove(tm.begin(), tm.end(), ';'), tm.end());
-        tm = trimStr(tm);
-        if (tm.empty())
+        std::string line = lines[lineIdx];
+        std::string trimmed = line;
+        trimmed.erase(std::remove(trimmed.begin(), trimmed.end(), ';'), trimmed.end());
+        trimmed = trimStr(trimmed);
+
+        if (trimmed.empty())
             continue;
-        bool tRm = 1;
-        while (tRm)
+
+        // 移除各种类型前缀 (更彻底的移除)
+        bool typeRemoved = true;
+        while (typeRemoved)
         {
-            tRm = 0;
-            static const std::vector<std::string> ts = {"num", "str", "bool", "obj", "num[]", "str[]", "bool[]", "obj[]", "[]", "[ ]"};
-            for (auto &t : ts)
-                if (tm.compare(0, t.size(), t) == 0)
+            typeRemoved = false;
+            static const std::vector<std::string> types = {
+                "num", "str", "bool", "obj", "num[]", "str[]", "bool[]", "obj[]", "[]", "[ ]"};
+            for (const auto &t : types)
+            {
+                if (trimmed.compare(0, t.length(), t) == 0)
                 {
-                    if (t.back() != ' ' && tm.size() > t.size() && (isalnum(tm[t.size()]) || tm[t.size()] == '_'))
+                    if (t.back() != ' ' && trimmed.size() > t.size() && (std::isalnum(trimmed[t.size()]) || trimmed[t.size()] == '_'))
                         continue;
-                    tm = trimStr(tm.substr(t.size()));
-                    tRm = 1;
+                    trimmed = trimStr(trimmed.substr(t.length()));
+                    typeRemoved = true;
                     break;
                 }
-        }
-        if (tm.empty())
-            continue;
-        if (tm == "{" || tm == "else{" || tm == "else {")
-        {
-            if (tm == "{" && (inD || (!gLs.empty() && gLs.back().ct.back() == ':')))
-                continue;
-            if (tm != "{")
-                gLs.push_back({cur, "else:"});
-            cur++;
-            continue;
-        }
-        if (tm == "}" || tm == "};")
-        {
-            if (inD)
-            {
-                if (cur > indentLevel)
-                    cur--;
-                gLs.push_back({cur, "}", true});
-                inD = 0;
-                for (auto &a : pendingDictAssignments)
-                    gLs.push_back({cur, a});
-                pendingDictAssignments.clear();
-            }
-            else if (cur > indentLevel)
-                cur--;
-            continue;
-        }
-        if (tm[0] == '}')
-        {
-            if (cur > indentLevel)
-                cur--;
-            tm = trimStr(tm.substr(1));
-            if (tm.empty())
-                continue;
-        }
-        auto getBr = [](const std::string &s)
-        { bool inS=0; char q=0; for (size_t i=0; i<s.size(); ++i) { if ((s[i]=='"'||s[i]=='\'')&&(i==0||s[i-1]!='\\')) { if(!inS){inS=1;q=s[i];} else if(s[i]==q)inS=0; } if (!inS && s[i] == '{') return (int)i; } return -1; };
-        int bP = getBr(tm);
-        bool isAD = (tm.find('=') != std::string::npos && (bP != -1 || tm.back() == '=')), isBS = (bP != -1 && !isAD && !inD);
-        if (isBS)
-        {
-            tm = trimStr(tm.substr(0, bP));
-            if (tm.empty())
-            {
-                cur++;
-                continue;
             }
         }
-        if (tm == "else")
+
+        if (trimmed.empty())
+            continue;
+
+        // 1. 处理大括号和缩进
+        if (trimmed == "{" || trimmed == "else{" || trimmed == "else {")
         {
-            gLs.push_back({cur, "else:"});
-            cur++;
+            if (trimmed == "{" && inDict)
+                continue;
+
+            // 修复: 如果上一行是以 : 结尾 (if/for/while/else), 则单独的 { 是多余的
+            if (trimmed == "{" && !genLines.empty() && genLines.back().content.back() == ':')
+                continue;
+
+            if (trimmed != "{")
+                genLines.push_back({currentIndent, "else:"});
+            currentIndent++;
             continue;
         }
-        auto hCtrl = [&](std::string kw, int l)
+
+        // 检查是否是字典结束
+        if (trimmed == "}" || trimmed == "};")
         {
-            if (tm.compare(0, l, kw) == 0 && (tm.size() == (size_t)l || !isalnum(tm[l])))
+            // 如果是在字典中，则保留 }，否则跳过 (Python 不需要 } 结束 block)
+            if (inDict)
             {
-                size_t s = tm.find('('), e = tm.find_last_of(')');
-                std::string cd = (s != std::string::npos && e != std::string::npos) ? tm.substr(s + 1, e - s - 1) : trimStr(tm.substr(l));
-                if (kw == "for")
+                if (currentIndent > indentLevel)
+                    currentIndent--;
+                genLines.push_back({currentIndent, "}", true});
+                inDict = false;
+
+                // Output pending assignments (e.g. for role_config self-reference)
+                if (!pendingDictAssignments.empty())
                 {
-                    size_t c = cd.find(',');
-                    if (c != std::string::npos)
+                    for (const auto &assign : pendingDictAssignments)
                     {
-                        std::string v1 = trimStr(cd.substr(0, c)), r = trimStr(cd.substr(c + 1)), iP = " in ";
-                        size_t ip = r.find(iP);
-                        if (ip != std::string::npos)
-                            gLs.push_back({cur, "for " + v1 + ", " + trimStr(r.substr(0, ip)) + " in " + normalizeExpression(r.substr(ip + 4)) + ".items():"});
-                        else if (v1 == "role" && r == "count")
-                            gLs.push_back({cur, "for role, count in self.role_config.items():"});
-                        else
-                            gLs.push_back({cur, "for " + v1 + " in " + normalizeExpression(r) + ":"});
+                        genLines.push_back({currentIndent, assign});
+                    }
+                    pendingDictAssignments.clear();
+                }
+            }
+            else
+            {
+                if (currentIndent > indentLevel)
+                    currentIndent--;
+            }
+            continue;
+        }
+
+        if (trimmed[0] == '}')
+        {
+            if (currentIndent > indentLevel)
+                currentIndent--;
+            trimmed = trimStr(trimmed.substr(1));
+            if (trimmed.empty())
+                continue;
+        }
+
+        // 2. 特殊处理 if/for/while/else/elif
+        bool hasLBrace = false;
+        bool inStr = false;
+        char sQ = 0;
+        for (size_t i = 0; i < trimmed.size(); ++i)
+        {
+            if ((trimmed[i] == '"' || trimmed[i] == '\'') && (i == 0 || trimmed[i - 1] != '\\'))
+            {
+                if (!inStr)
+                {
+                    inStr = true;
+                    sQ = trimmed[i];
+                }
+                else if (trimmed[i] == sQ)
+                    inStr = false;
+            }
+            if (!inStr && trimmed[i] == '{')
+            {
+                hasLBrace = true;
+                break;
+            }
+        }
+
+        // 如果包含 = 和 {，或者以 = 结尾，则可能是字典赋值
+        bool isAssignmentWithDict = (trimmed.find('=') != std::string::npos && (hasLBrace || trimmed.back() == '='));
+        // 如果只有 { 且不是赋值，可能是 block 开始，移除它
+        bool isBlockStart = (hasLBrace && !isAssignmentWithDict && !inDict);
+
+        if (isBlockStart)
+        {
+            size_t bPos = 0;
+            bool inS = false;
+            char qS = 0;
+            for (size_t i = 0; i < trimmed.size(); ++i)
+            {
+                if ((trimmed[i] == '"' || trimmed[i] == '\'') && (i == 0 || trimmed[i - 1] != '\\'))
+                {
+                    if (!inS)
+                    {
+                        inS = true;
+                        qS = trimmed[i];
+                    }
+                    else if (trimmed[i] == qS)
+                        inS = false;
+                }
+                if (!inS && trimmed[i] == '{')
+                {
+                    bPos = i;
+                    break;
+                }
+            }
+            trimmed = trimStr(trimmed.substr(0, bPos));
+            if (trimmed.empty())
+            {
+                currentIndent++;
+                continue;
+            }
+        }
+
+        if (trimmed == "else")
+        {
+            genLines.push_back({currentIndent, "else:"});
+            currentIndent++;
+            continue;
+        }
+
+        if (trimmed.compare(0, 4, "elif") == 0)
+        {
+            std::string cond;
+            size_t start = trimmed.find('(');
+            size_t end = trimmed.find_last_of(')');
+            if (start != std::string::npos && end != std::string::npos)
+                cond = trimmed.substr(start + 1, end - start - 1);
+            else
+                cond = trimStr(trimmed.substr(4));
+
+            genLines.push_back({currentIndent, "elif " + normalizeExpression(cond) + ":"});
+            currentIndent++;
+            continue;
+        }
+
+        if (trimmed.compare(0, 2, "if") == 0 && (trimmed.size() == 2 || !std::isalnum(trimmed[2])))
+        {
+            std::string cond;
+            size_t start = trimmed.find('(');
+            size_t end = trimmed.find_last_of(')');
+            if (start != std::string::npos && end != std::string::npos)
+                cond = trimmed.substr(start + 1, end - start - 1);
+            else
+                cond = trimStr(trimmed.substr(2));
+
+            genLines.push_back({currentIndent, "if " + normalizeExpression(cond) + ":"});
+            currentIndent++;
+            continue;
+        }
+
+        if (trimmed.compare(0, 3, "for") == 0 && (trimmed.size() == 3 || !std::isalnum(trimmed[3])))
+        {
+            size_t start = trimmed.find('(');
+            size_t end = trimmed.find_last_of(')');
+            if (start != std::string::npos && end != std::string::npos)
+            {
+                std::string content = trimmed.substr(start + 1, end - start - 1);
+                size_t comma = content.find(',');
+                if (comma != std::string::npos)
+                {
+                    std::string var1 = trimStr(content.substr(0, comma));
+                    std::string rest = trimStr(content.substr(comma + 1));
+
+                    // 检查是否是字典迭代 (如果没有 in，但有两个变量)
+                    size_t inPos = rest.find(" in ");
+                    if (inPos != std::string::npos)
+                    {
+                        std::string var2 = trimStr(rest.substr(0, inPos));
+                        std::string target = trimStr(rest.substr(inPos + 4));
+                        genLines.push_back({currentIndent, "for " + var1 + ", " + var2 + " in " + normalizeExpression(target) + ".items():"});
                     }
                     else
-                        gLs.push_back({cur, "for " + normalizeExpression(cd) + ":"});
+                    {
+                        // 修复: 如果 rest 是变量名，且前面有变量名，可能是 var1, var2 in collection
+                        if (var1 == "role" && rest == "count")
+                        {
+                            genLines.push_back({currentIndent, "for role, count in self.role_config.items():"});
+                        }
+                        else
+                        {
+                            genLines.push_back({currentIndent, "for " + var1 + " in " + normalizeExpression(rest) + ":"});
+                        }
+                    }
                 }
                 else
-                    gLs.push_back({cur, kw + (kw == "if" || kw == "elif" || kw == "while" ? " " + normalizeExpression(cd) : "") + ":"});
-                cur++;
-                return 1;
-            }
-            return 0;
-        };
-        if (hCtrl("if", 2) || hCtrl("elif", 4) || hCtrl("for", 3) || hCtrl("while", 5))
-            continue;
-        if (tm.find("print") == 0)
-        {
-            size_t s = tm.find('('), e = tm.find_last_of(')');
-            if (s != std::string::npos && e != std::string::npos)
-            {
-                std::string content = transformPrintContent(tm.substr(s + 1, e - s - 1));
-
-                // Specific handle_death mappings for DSL patterns
-                if (content.find("#!") != std::string::npos)
                 {
-                    if (content.find("被女巫毒杀") != std::string::npos)
-                    {
-                        size_t p1 = content.find("{"), p2 = content.find("}");
-                        if (p1 != std::string::npos && p2 != std::string::npos)
-                        {
-                            std::string target = content.substr(p1 + 1, p2 - p1 - 1);
-                            gLs.push_back({cur, "self.handle_death(" + target + ", DeathReason.POISONED_BY_WITCH)"});
-                            continue;
-                        }
-                    }
-                    else if (content.find("在夜晚被杀害") != std::string::npos)
-                    {
-                        gLs.push_back({cur, "self.handle_death(self.killed_player, DeathReason.KILLED_BY_WEREWOLF)"});
-                        continue;
-                    }
-                    else if (content.find("被投票出局") != std::string::npos)
-                    {
-                        size_t p1 = content.find("{"), p2 = content.find("}");
-                        if (p1 != std::string::npos && p2 != std::string::npos)
-                        {
-                            std::string target = content.substr(p1 + 1, p2 - p1 - 1);
-                            gLs.push_back({cur, "self.handle_death(" + target + ", DeathReason.VOTED_OUT)"});
-                            continue;
-                        }
-                    }
-                    else if (content.find("被猎人带走") != std::string::npos)
-                    {
-                        size_t p1 = content.find("{"), p2 = content.find("}");
-                        if (p1 != std::string::npos && p2 != std::string::npos)
-                        {
-                            std::string target = content.substr(p1 + 1, p2 - p1 - 1);
-                            gLs.push_back({cur, "self.handle_death(" + target + ", DeathReason.SHOT_BY_HUNTER)"});
-                            continue;
-                        }
-                    }
+                    genLines.push_back({currentIndent, "for " + normalizeExpression(content) + ":"});
                 }
+            }
+            currentIndent++;
+            continue;
+        }
 
-                gLs.push_back({cur, "print(" + content + ")"});
-                gLs.push_back({cur, "self.logger.log_event(" + content + ", self.all_player_names)"});
+        if (trimmed.compare(0, 5, "while") == 0 && (trimmed.size() == 5 || !std::isalnum(trimmed[5])))
+        {
+            size_t start = trimmed.find('(');
+            size_t end = trimmed.find_last_of(')');
+            std::string cond = (start != std::string::npos && end != std::string::npos) ? trimmed.substr(start + 1, end - start - 1) : trimmed.substr(5);
+            genLines.push_back({currentIndent, "while " + normalizeExpression(cond) + ":"});
+            currentIndent++;
+            continue;
+        }
+
+        // 处理 print / println
+        if (trimmed.size() >= 7 && trimmed.substr(0, 7) == "println")
+        {
+            size_t start = trimmed.find('(');
+            size_t end = trimmed.find_last_of(')');
+            if (start != std::string::npos && end != std::string::npos)
+            {
+                std::string inner = trimmed.substr(start + 1, end - start - 1);
+                genLines.push_back({currentIndent, "print(" + transformPrintContent(inner) + ")"});
                 continue;
             }
         }
-        if (isAD)
+        else if (trimmed.size() >= 5 && trimmed.substr(0, 5) == "print")
         {
-            size_t bp = tm.find('{');
-            std::string lf = (bp != std::string::npos) ? trimStr(tm.substr(0, bp)) : tm, nL = normalizeExpression(lf);
-            if (!nL.empty() && nL.back() == '=')
-                nL = trimStr(nL.substr(0, nL.size() - 1));
-            if (nL.find('=') == std::string::npos)
-                nL += " =";
-            currentDictName = (nL.find("role_config") != std::string::npos) ? "role_config" : "";
-            if (!currentDictName.empty())
-                pendingDictAssignments.clear();
-            gLs.push_back({cur, nL + " {", true});
-            cur++;
-            inD = true;
-            if (bp != std::string::npos)
+            size_t start = trimmed.find('(');
+            size_t end = trimmed.find_last_of(')');
+            if (start != std::string::npos && end != std::string::npos)
             {
-                std::string tl = trimStr(tm.substr(bp + 1));
-                size_t cp = tl.find('}');
-                if (cp != std::string::npos)
+                std::string inner = trimmed.substr(start + 1, end - start - 1);
+                genLines.push_back({currentIndent, "print(" + transformPrintContent(inner) + ")"});
+                continue;
+            }
+        }
+
+        // 普通行
+        if (isAssignmentWithDict)
+        {
+            size_t bracePos = trimmed.find('{');
+            if (bracePos != std::string::npos)
+            {
+                std::string left = trimStr(trimmed.substr(0, bracePos));
+                std::string right = trimStr(trimmed.substr(bracePos)); // 包含 {
+
+                std::string normalizedLeft = normalizeExpression(left);
+                // 移除 normalizedLeft 末尾的 = ，如果 normalizedLeft 本身包含 =
+                if (!normalizedLeft.empty() && normalizedLeft.back() == '=')
+                    normalizedLeft = trimStr(normalizedLeft.substr(0, normalizedLeft.size() - 1));
+
+                // 确保有 =
+                if (normalizedLeft.find('=') == std::string::npos)
+                    normalizedLeft += " =";
+
+                // SPECIAL HANDLING for role_config self-reference (e.g. villager count depending on sum(role_config.values()))
+                bool isRoleConfig = (normalizedLeft.find("role_config") != std::string::npos);
+                if (isRoleConfig)
                 {
-                    std::string ct = trimStr(tl.substr(0, cp));
-                    if (!ct.empty())
-                        gLs.push_back({cur, normalizeExpression(ct), true});
-                    if (cur > indentLevel)
-                        cur--;
-                    gLs.push_back({cur, "}", true});
-                    inD = false;
+                    currentDictName = "role_config";
+                    pendingDictAssignments.clear();
                 }
-                else if (!tl.empty())
-                    gLs.push_back({cur, normalizeExpression(tl), true});
+                else
+                {
+                    currentDictName = "";
+                }
+
+                std::string head = normalizedLeft + " {";
+                std::string tail = trimStr(right.substr(1));
+
+                genLines.push_back({currentIndent, head, true});
+                currentIndent++;
+                inDict = true;
+
+                if (!tail.empty())
+                {
+                    // Check for closing brace anywhere in tail
+                    size_t closePos = tail.find('}');
+                    if (closePos != std::string::npos)
+                    {
+                        // Content before }
+                        std::string content = trimStr(tail.substr(0, closePos));
+                        if (!content.empty())
+                        {
+                            std::string normContent = normalizeExpression(content);
+                            genLines.push_back({currentIndent, normContent, true});
+                        }
+
+                        // Close dict
+                        if (currentIndent > indentLevel)
+                            currentIndent--;
+                        genLines.push_back({currentIndent, "}", true});
+                        inDict = false;
+
+                        // Content after } (e.g. else)
+                        std::string after = trimStr(tail.substr(closePos + 1));
+                        if (!after.empty())
+                        {
+                            if (after.find("else") == 0)
+                            {
+                                genLines.push_back({currentIndent, "else:"});
+                                currentIndent++;
+                            }
+                            else
+                            {
+                                genLines.push_back({currentIndent, normalizeExpression(after), true});
+                                if (after.find('{') != std::string::npos)
+                                    currentIndent++;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        std::string normTail = normalizeExpression(tail);
+                        genLines.push_back({currentIndent, normTail, true});
+                    }
+                }
+            }
+            else
+            {
+                // role_config =
+                std::string normalized = normalizeExpression(trimmed);
+                if (normalized.back() != '=')
+                    normalized += " =";
+
+                // SPECIAL HANDLING for role_config self-reference
+                bool isRoleConfig = (normalized.find("role_config") != std::string::npos);
+                if (isRoleConfig)
+                {
+                    currentDictName = "role_config";
+                    pendingDictAssignments.clear();
+                }
+                else
+                {
+                    currentDictName = "";
+                }
+
+                genLines.push_back({currentIndent, normalized + " {", true});
+                currentIndent++;
+                inDict = true;
             }
         }
         else
         {
-            std::string nm = normalizeExpression(tm);
-            if (inD && !currentDictName.empty() && nm.find(currentDictName) != std::string::npos)
+            std::string normalized = normalizeExpression(trimmed);
+
+            // Handle deferred dictionary assignments (self-reference)
+            // e.g. "villager": self.player_count - sum(role_config.values())
+            if (inDict && !currentDictName.empty() && normalized.find(currentDictName) != std::string::npos)
             {
-                size_t col = nm.find(':');
-                if (col != std::string::npos)
+                size_t colon = normalized.find(':');
+                if (colon != std::string::npos)
                 {
-                    std::string k = trimStr(nm.substr(0, col)), v = trimStr(nm.substr(col + 1));
-                    if (!v.empty() && v.back() == ',')
-                        v.pop_back();
-                    pendingDictAssignments.push_back("self." + currentDictName + "[" + k + "] = " + v);
-                    nm = k + ": 0";
+                    std::string key = trimStr(normalized.substr(0, colon));
+                    std::string val = trimStr(normalized.substr(colon + 1));
+                    // Remove trailing comma if present
+                    if (!val.empty() && val.back() == ',')
+                        val.pop_back();
+
+                    // Create assignment: dict[key] = value
+                    pendingDictAssignments.push_back("self." + currentDictName + "[" + key + "] = " + val);
+
+                    // Replace current line with 0 to allow dict creation to succeed
+                    normalized = key + ": 0";
                 }
             }
-            if (nm.find("println(") == 0)
-                nm = "print(" + nm.substr(8);
-            if (inD && nm.find(':') != std::string::npos && nm.back() != ',')
-                nm += ",";
-            if (!inD && nm.back() == '{')
-                nm = trimStr(nm.substr(0, nm.size() - 1));
-            gLs.push_back({cur, nm, inD});
-            if (isBS || (bP != -1 && nm.find('{') != std::string::npos && nm.find('}') == std::string::npos && !inD))
-                cur++;
+
+            // 最后的防线: 如果 normalized 以 println( 开头，强制替换为 print(
+            if (normalized.size() >= 8 && normalized.substr(0, 8) == "println(")
+            {
+                normalized = "print(" + normalized.substr(8);
+            }
+
+            // 如果在字典中，且没有逗号，添加逗号 (简单处理)
+            if (inDict)
+            {
+                // 确保 key: value 行有逗号
+                if (normalized.find(':') != std::string::npos && normalized.back() != ',')
+                    normalized += ",";
+            }
+
+            // 修复: Python 中 for 循环不需要大括号，如果 normalizeExpression 留下了 { 也要去掉
+            if (!inDict && normalized.back() == '{')
+            {
+                normalized = trimStr(normalized.substr(0, normalized.size() - 1));
+            }
+
+            genLines.push_back({currentIndent, normalized, inDict});
+            if (isBlockStart || (hasLBrace && normalized.find('{') != std::string::npos && normalized.find('}') == std::string::npos && !inDict))
+                currentIndent++;
         }
     }
-    if (gLs.empty())
+
+    if (genLines.empty())
         return indent(indentLevel) + "pass\n";
-    std::stringstream fs;
-    for (size_t i = 0; i < gLs.size(); ++i)
+
+    std::stringstream final_ss;
+    for (size_t i = 0; i < genLines.size(); ++i)
     {
-        fs << indent(gLs[i].idt) << gLs[i].ct << "\n";
-        if (gLs[i].ct.back() == ':' && (i + 1 == gLs.size() || gLs[i + 1].idt <= gLs[i].idt))
-            fs << indent(gLs[i].idt + 1) << "pass\n";
+        final_ss << indent(genLines[i].indent) << genLines[i].content << "\n";
+        if (genLines[i].content.back() == ':')
+        {
+            bool hasNext = (i + 1 < genLines.size() && genLines[i + 1].indent > genLines[i].indent);
+            if (!hasNext)
+                final_ss << indent(genLines[i].indent + 1) << "pass\n";
+        }
     }
-    return fs.str();
+    return final_ss.str();
 }
 
 std::string PythonGenerator::generate()
@@ -836,55 +1269,97 @@ std::string PythonGenerator::generate()
 std::string PythonGenerator::generateImports()
 {
     std::stringstream ss;
-    ss << "\"\"\"\nGenerated by Wolf DSL Translator\nGame: " << result.gameName << "\n\"\"\"\n\n";
-    ss << "import random\nimport sys\nimport json\nimport time\nfrom pathlib import Path\nfrom enum import Enum\nfrom abc import ABC, abstractmethod\nfrom dataclasses import dataclass, field\nfrom typing import List, Dict, Optional, Any, Callable, Union\n\n";
-    ss << "try:\n"
-       << indent(1) << "from engine import ActionContext, GameAction, GameStep, GamePhase, Role, DeathReason, GameEngine\n"
-       << "except ImportError:\n"
-       << indent(1) << "from .engine import ActionContext, GameAction, GameStep, GamePhase, Role, DeathReason, GameEngine\n\n";
+    ss << "\"\"\"\n"
+       << "Generated by Wolf DSL Translator\n"
+       << "Game: " << result.gameName << "\n\"\"\"\n\n";
+    ss << R"(from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from enum import Enum
+import random
+import time
+from typing import List, Dict, Optional, Any, Callable
+import sys
+import json
+import os
+from pathlib import Path
+
+BASE = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(BASE))
+
+try:
+    from src.Logger import GameLogger
+    from src.services.players import Player
+except ImportError:
+    # Mock if not found
+    class GameLogger:
+        def __init__(self, name, players): pass
+        def log_event(self, msg, targets=None): pass
+    class Player:
+        def __init__(self, name, role, config, prompts, logger):
+            self.name = name
+            self.role = role
+            self.is_alive = True
+            self.config = config
+            self.prompts = prompts
+            self.logger = logger
+
+# ==========================================
+# Core Engine Structures
+# ==========================================
+
+from src.engine import ActionContext, GameAction, GameStep, GamePhase
+
+)";
     return ss.str();
 }
 
-std::string PythonGenerator::generateEnums() { return ""; }
+std::string PythonGenerator::generateEnums()
+{
+    std::stringstream ss;
+    ss << "class Role(Enum):\n";
+    ss << indent(1) << "ALL = \"all\"\n";
+    for (const auto &r : result.roles)
+    {
+        std::string upper = r;
+        for (auto &c : upper)
+            c = (char)std::toupper((unsigned char)c);
+        ss << indent(1) << upper << " = \"" << r << "\"\n";
+    }
+    ss << "\n";
+
+    ss << R"(class DeathReason(Enum):
+    KILLED_BY_WEREWOLF = "在夜晚被杀害"
+    POISONED_BY_WITCH = "被女巫毒杀"
+    VOTED_OUT = "被投票出局"
+    SHOT_BY_HUNTER = "被猎人带走"
+
+# ==========================================
+# Action Classes
+# ==========================================
+
+)";
+    return ss.str();
+}
 
 std::string PythonGenerator::generateActionClasses()
 {
     std::stringstream ss;
-    for (auto &a : result.actions)
+    for (const auto &action : result.actions)
     {
-        std::string n = a.name, desc = a.name;
-        if (n.empty())
-            continue;
-
-        // CamelCase name for class
-        std::string className = "";
-        bool nextUpper = true;
-        for (char c : n)
+        std::string className = action.name;
+        if (!className.empty())
         {
-            if (c == '_')
-                nextUpper = true;
-            else
-            {
-                if (nextUpper)
-                {
-                    className += (char)toupper((unsigned char)c);
-                    nextUpper = false;
-                }
-                else
-                    className += c;
-            }
+            className[0] = (char)std::toupper((unsigned char)className[0]);
+            className += "Action";
+            ss << "class " << className << "(GameAction):\n";
+            ss << indent(1) << "\"\"\"Action class for DSL action: " << action.name << "\"\"\"\n";
+            ss << indent(1) << "def description(self) -> str:\n";
+            ss << indent(2) << "return \"" << action.name << "\"\n\n";
+            ss << indent(1) << "def execute(self, context: ActionContext) -> Any:\n";
+            ss << indent(2) << "game = context.game\n";
+            ss << indent(2) << "target = context.target\n";
+            ss << indent(2) << "game.action_" << action.name << "(target)\n\n";
         }
-
-        // Human readable description
-        for (auto &c : desc)
-            if (c == '_')
-                c = ' ';
-        if (desc[0] >= 'a' && desc[0] <= 'z')
-            desc[0] = (char)toupper((unsigned char)desc[0]);
-
-        ss << "class " << className << "Action(GameAction):\n"
-           << indent(1) << "def description(self)->str: return \"" << desc << "\"\n"
-           << indent(1) << "def execute(self, context:ActionContext)->Any: return context.game.action_" << a.name << "(context.target)\n\n";
     }
     return ss.str();
 }
@@ -892,123 +1367,228 @@ std::string PythonGenerator::generateActionClasses()
 std::string PythonGenerator::generateGameClass()
 {
     std::stringstream ss;
-    ss << "class " << result.gameName << "(GameEngine):\n"
-       << indent(1) << "\"\"\"" << result.gameName << " implementation.\"\"\"\n\n";
-    ss << generateInit() << generateInitPhases() << generateSetupGame() << generateDSLMethods();
+    ss << "# ==========================================\n";
+    ss << "# Main Game Class\n";
+    ss << "# ==========================================\n\n";
+    ss << "class " << result.gameName << ":\n";
+    ss << indent(1) << "\"\"\"" << result.gameName << " implementation generated from DSL.\"\"\"\n\n";
+
+    ss << generateInit();
+    ss << generateInitPhases();
+    ss << generateSetupGame();
+    ss << generateCoreHelpers();
+    ss << generateDSLMethods();
+
     return ss.str();
 }
 
 std::string PythonGenerator::generateInit()
 {
     std::stringstream ss;
-    ss << indent(1) << "def __init__(self, players_data: List[Dict[str, Any]]):\n"
-       << indent(2) << "super().__init__(players_data)\n";
-    for (auto &v : result.variables)
+    ss << indent(1) << "def __init__(self, players: List[Dict[str, str]]):\n";
+    ss << indent(2) << "self.players: Dict[str, Player] = {}\n";
+    ss << indent(2) << "self.roles: Dict[str, str] = {}\n";
+    ss << indent(2) << "self.all_player_names: List[str] = [p.get(\"player_name\", \"\") for p in players]\n";
+    ss << indent(2) << "self.phases: List[GamePhase] = []\n";
+    ss << indent(2) << "self.logger = GameLogger(\"werewolf\", players)\n";
+    ss << indent(2) << "self.game_over = False\n";
+    ss << indent(2) << "# DSL Global Variables\n";
+    for (const auto &pair : result.variables)
     {
-        std::string n = trimStr(v.first);
-        while (!n.empty() && !isalnum(n[0]) && n[0] != '_')
-            n = n.substr(1);
-        while (!n.empty() && !isalnum(n.back()) && n.back() != '_')
-            n.pop_back();
-        static const std::set<std::string> skp = {"all_player_names", "game_over", "players", "roles", "phases", "logger"};
-        if (!skp.count(n))
-            ss << indent(2) << "self." << n << " = " << toPythonLiteral(v.second.value) << "\n";
+        // Skip variables that are already initialized as core members
+        std::string name = trimStr(pair.first);
+        // Remove any non-alphanumeric characters from start (like BOM or spaces)
+        while (!name.empty() && !isalnum((unsigned char)name[0]) && name[0] != '_')
+        {
+            name = name.substr(1);
+        }
+        // Also trim from end to be safe
+        while (!name.empty() && !isalnum((unsigned char)name.back()) && name.back() != '_')
+        {
+            name.pop_back();
+        }
+
+        if (name == "all_player_names" || name == "game_over" || name == "players" || name == "roles" || name == "phases" || name == "logger")
+            continue;
+        ss << indent(2) << "self." << name << " = " << toPythonLiteral(pair.second.value) << "\n";
     }
-    return ss.str() + indent(2) + "self._init_phases()\n\n";
+    ss << "\n"
+       << indent(2) << "self._init_phases()\n\n";
+    return ss.str();
 }
 
 std::string PythonGenerator::generateInitPhases()
 {
     std::stringstream ss;
     ss << indent(1) << "def _init_phases(self):\n";
+    ss << indent(2) << "\"\"\"Initialize phases and steps from DSL.\"\"\"\n";
     if (result.phases.empty())
-        return ss.str() + indent(2) + "pass\n\n";
-    for (auto &p : result.phases)
     {
-        ss << indent(2) << p.name << " = GamePhase(\"" << p.name << "\")\n";
-        for (auto &s : p.steps)
-        {
-            std::string ac = "None";
-            if (!s.actionName.empty())
-            {
-                std::string an = s.actionName;
-                ac = "";
-                bool nextUpper = true;
-                for (char c : an)
-                {
-                    if (c == '_')
-                        nextUpper = true;
-                    else
-                    {
-                        if (nextUpper)
-                        {
-                            ac += (char)toupper((unsigned char)c);
-                            nextUpper = false;
-                        }
-                        else
-                            ac += c;
-                    }
-                }
-                ac += "Action()";
-            }
-            ss << indent(2) << p.name << ".add_step(GameStep(\"" << s.name << "\", [";
-            for (size_t i = 0; i < s.rolesInvolved.size(); ++i)
-            {
-                std::string r = s.rolesInvolved[i];
-                if (r == "all")
-                {
-                    ss << "Role.ALL";
-                    if (i < s.rolesInvolved.size() - 1)
-                        ss << ", ";
-                    continue;
-                }
-                for (auto &c : r)
-                    c = (char)toupper(c);
-                ss << "Role." << r << (i == s.rolesInvolved.size() - 1 ? "" : ", ");
-            }
-            ss << "], " << ac << "))\n";
-        }
-        ss << indent(2) << "self.phases.append(" << p.name << ")\n";
+        ss << indent(2) << "pass\n\n";
     }
-    return ss.str() + "\n";
+    else
+    {
+        for (const auto &phase : result.phases)
+        {
+            ss << indent(2) << phase.name << " = GamePhase(\"" << phase.name << "\")\n";
+            for (const auto &step : phase.steps)
+            {
+                std::string actionClass = "None";
+                if (!step.actionName.empty())
+                {
+                    actionClass = step.actionName;
+                    actionClass[0] = (char)std::toupper((unsigned char)actionClass[0]);
+                    actionClass += "Action()";
+                }
+                ss << indent(2) << phase.name << ".add_step(GameStep(\"" << step.name << "\", [";
+                for (size_t i = 0; i < step.rolesInvolved.size(); ++i)
+                {
+                    std::string r = step.rolesInvolved[i];
+                    std::string upper = r;
+                    for (auto &c : upper)
+                        c = (char)std::toupper((unsigned char)c);
+                    ss << "Role." << upper << (i == step.rolesInvolved.size() - 1 ? "" : ", ");
+                }
+                ss << "], " << actionClass << "))\n";
+            }
+            ss << indent(2) << "self.phases.append(" << phase.name << ")\n\n";
+        }
+    }
+    return ss.str();
 }
 
 std::string PythonGenerator::generateSetupGame()
 {
     std::stringstream ss;
     ss << indent(1) << "def setup_game(self):\n";
-    return ss.str() + (result.setup.bodyLines.empty() ? indent(2) + "pass\n\n" : translateBody(result.setup.bodyLines, 2) + "\n");
+    ss << indent(2) << "\"\"\"Custom game setup logic from DSL.\"\"\"\n";
+
+    // 1. Translated setup block from DSL
+    if (!result.setup.bodyLines.empty())
+    {
+        ss << indent(2) << "# DSL setup block\n";
+        ss << translateBody(result.setup.bodyLines, 2) << "\n";
+    }
+
+    // 2. Generated Player Initialization Logic using role_config from DSL
+    ss << indent(2) << "# Generated Player Initialization\n";
+    ss << indent(2) << "role_list = []\n";
+    ss << indent(2) << "if hasattr(self, 'role_config') and self.role_config:\n";
+    ss << indent(3) << "for role, count in self.role_config.items():\n";
+    ss << indent(3) << "    for _ in range(count):\n";
+    ss << indent(3) << "        role_list.append(role)\n";
+    ss << indent(2) << "else:\n";
+    ss << indent(3) << "# Fallback if role_config is not defined or empty\n";
+    ss << indent(3) << "role_list = [\"villager\"] * len(self.all_player_names)\n";
+    ss << indent(2) << "random.shuffle(role_list)\n\n";
+    ss << indent(2) << "for i, name in enumerate(self.all_player_names):\n";
+    ss << indent(3) << "role_str = role_list[i] if i < len(role_list) else \"villager\"\n";
+    ss << indent(3) << "player = Player(name, role_str, {}, {}, self.logger)\n";
+    ss << indent(3) << "self.players[name] = player\n";
+    ss << indent(3) << "self.roles[name] = role_str\n\n";
+    return ss.str();
+}
+
+std::string PythonGenerator::generateCoreHelpers()
+{
+    std::stringstream ss;
+    ss << R"py(    def get_alive_players(self, roles_filter=None):
+        alive = []
+        for p in self.players.values():
+            if p.is_alive:
+                if roles_filter is None or p.role in roles_filter:
+                    alive.append(p.name)
+        return alive
+
+    def handle_death(self, player_name: str, reason: DeathReason):
+        if player_name in self.players:
+            self.players[player_name].is_alive = False
+        print(f"#! {player_name} {reason.value}")
+
+    def _get_player_by_role(self, role_str: str):
+        for p in self.players.values():
+            if p.role == role_str and p.is_alive:
+                return p
+        return None
+
+    def run_game(self):
+        self.setup_game()
+        while not self.game_over:
+            for phase in self.phases:
+                if self.game_over: break
+                for step in phase.steps:
+                    if self.game_over: break
+                    if step.action is not None:
+                        context = ActionContext(game=self)
+                        step.action.execute(context)
+                    else:
+                        print(f"DEBUG: Skipping step {step.name} (no action defined)")
+        print("Game Over.")
+
+)py";
+    return ss.str();
 }
 
 std::string PythonGenerator::generateDSLMethods()
 {
     std::stringstream ss;
-    auto gen = [&](std::string pfx, const auto &its)
+    auto genMethod = [&](const std::string &prefix, const auto &items)
     {
-        for (auto &it : its)
+        for (const auto &item : items)
         {
-            std::string ps = "self";
-            if (pfx == "action_")
-                ps += ", target=None";
-            for (auto &p : it.params)
-                if (!(pfx == "action_" && p.name == "target"))
-                    ps += ", " + p.name + "=None";
-            ss << indent(1) << "def " << pfx << it.name << "(" << ps << "):\n"
-               << translateBody(it.bodyLines, 2) << "\n";
+            // Skip hardcoded utility methods that are already in generateCoreHelpers
+            if (prefix == "")
+            {
+                if (item.name == "get_alive_players" ||
+                    item.name == "handle_death" ||
+                    item.name == "_get_player_by_role" ||
+                    item.name == "run_game")
+                    continue;
+            }
+
+            std::string paramsStr = "self";
+            bool hasTarget = false;
+            if (prefix == "action_")
+            {
+                paramsStr += ", target=None";
+                hasTarget = true;
+            }
+
+            for (const auto &param : item.params)
+            {
+                // Avoid duplicating 'target' if it's already in the params
+                if (hasTarget && param.name == "target")
+                    continue;
+                // Add =None to avoid "non-default argument follows default argument" error
+                paramsStr += ", " + param.name + "=None";
+            }
+
+            ss << indent(1) << "def " << prefix << item.name << "(" << paramsStr << "):\n";
+            ss << translateBody(item.bodyLines, 2) << "\n";
         }
     };
-    gen("action_", result.actions);
-    gen("", result.methods);
+
+    genMethod("action_", result.actions);
+    genMethod("", result.methods);
     return ss.str();
 }
 
 std::string PythonGenerator::generateEntryPoint()
 {
     std::stringstream ss;
-    ss << "if __name__ == \"__main__\":\n"
-       << indent(1) << "game = " << result.gameName << "([{'player_name': f'Player{i}'} for i in range(12)])\n"
-       << indent(1) << "try: game.run_game()\n"
-       << indent(1) << "except KeyboardInterrupt: pass\n"
-       << indent(1) << "except Exception as e: print(e); import traceback; traceback.print_exc()\n";
+    ss << R"(if __name__ == "__main__":
+    # Simple test execution
+    players_data = [{'player_name': f'Player{i}'} for i in range(12)]
+    game = )"
+       << result.gameName << R"((players_data)
+    try:
+        game.run_game()
+    except KeyboardInterrupt:
+        print("\nGame terminated by user.")
+    except Exception as e:
+        print(f"Error during game execution: {e}")
+        import traceback
+        traceback.print_exc()
+)";
     return ss.str();
 }

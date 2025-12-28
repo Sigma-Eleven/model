@@ -58,7 +58,9 @@ class WerewolfSimple(Game):
         """Custom game setup logic from DSL."""
         super().setup_game()  # Call engine base setup
         # DSL Custom Logic
-        print("狼人杀简化版启动。") self.day_count = 1 self.game_over = False
+        print("狼人杀简化版启动。")
+        self.day_count = 1
+        self.game_over = False
 
     def action_kill(self, target):
         print(f"狼人杀害了:  {target}")
