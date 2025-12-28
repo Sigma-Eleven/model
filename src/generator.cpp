@@ -68,10 +68,10 @@ PythonGenerator::PythonGenerator(const WolfParseResult &result) : result(result)
             }
         }
     };
-    static const std::vector<std::string> engineMembers = {"logger", "players", "all_player_names", "day_number", "killed_player", "last_guarded", "witch_save_used", "witch_poison_used", "role_config"};
+    static const std::vector<std::string> engineMembers = {"logger", "players", "all_player_names", "day_number", "killed_player", "last_guarded", "witch_save_used", "witch_poison_used", "role_config", "_running"};
     for (auto &m : engineMembers)
         varNames.insert(m);
-    static const std::vector<std::string> engineMethods = {"_get_alive_players", "_get_player_by_role", "handle_death", "handle_hunter_shot", "check_game_over", "run_game", "run_phase"};
+    static const std::vector<std::string> engineMethods = {"get_alive_players", "get_player_by_role", "handle_death", "handle_hunter_shot", "check_game_over", "run_game", "run_phase", "stop_game", "load_basic_config", "process_discussion", "process_vote", "announce"};
     for (auto &m : engineMethods)
     {
         varNames.insert(m);
@@ -457,8 +457,9 @@ std::string PythonGenerator::normalizeExpression(const std::string &expr_raw, co
     out = fin;
     auto fxc = [&](std::string s, std::string r)
     { size_t p=0; while((p=out.find(s,p))!=std::string::npos) out.replace(p,s.size(),r), p+=r.size(); };
-    fxc("get_alive_players(", "_get_alive_players(");
-    fxc("get_player_by_role(", "_get_player_by_role(");
+    fxc("_get_alive_players(", "get_alive_players(");
+    fxc("_get_player_by_role(", "get_player_by_role(");
+    fxc("_cancel(", "stop_game(");
     fxc("f \"", "f\"");
     fxc("f \'", "f\'");
     // Map role strings to Role enum
@@ -773,7 +774,9 @@ std::string PythonGenerator::translateBody(const std::vector<std::string> &lines
                 }
             }
             if (nm.find("println(") == 0)
-                nm = "print(" + nm.substr(8);
+                nm = prefix + "announce(" + nm.substr(8);
+            if (nm.find("print(") == 0)
+                nm = prefix + "announce(" + nm.substr(6);
             if (inD && nm.find(':') != std::string::npos && nm.back() != ',')
                 nm += ",";
             if (!inD && nm.back() == '{')
@@ -862,10 +865,8 @@ std::string PythonGenerator::generateImports()
        << "import sys\n"
        << "import time\n"
        << "from typing import Any, Callable, Dict, List, Optional, Union\n\n"
-       << "from src.Logger import GameLogger\n"
-       << "from src.Player import Player\n\n"
-       << "from Game import ActionContext, GameAction, GameStep, GamePhase, Game\n\n"
-       << "BASE = Path(__file__).resolve().parent.parent.parent\n"
+       << "from src.Game import ActionContext, GameAction, GameStep, GamePhase, Game, Player, GameLogger\n\n"
+       << "BASE = Path(__file__).resolve().parent.parent\n"
        << "SRC_DIR = BASE / \"src\"\n\n"
        << "sys.path.append(str(BASE))\n\n";
     return ss.str();
@@ -873,7 +874,17 @@ std::string PythonGenerator::generateImports()
 
 std::string PythonGenerator::generateCoreStructures()
 {
-    return ""; // Imported from Game
+    std::stringstream ss;
+    ss << "class RobotPlayer(Player):\n"
+       << indent(1) << "def speak(self, prompt: str) -> str:\n"
+       << indent(2) << "print(f\"[发言] {self.name}: {prompt}\")\n"
+       << indent(2) << "return \"0\" if \"投票\" in prompt else f\"我是{self.name}，身份是{self.role}\"\n\n"
+       << indent(1) << "def choose(self, prompt: str, candidates: List[str], allow_skip: bool = False) -> Optional[str]:\n"
+       << indent(2) << "if not candidates: return \"skip\" if allow_skip else None\n"
+       << indent(2) << "choice = random.choice(candidates)\n"
+       << indent(2) << "print(f\"[选择] {self.name} 选择了 {choice}\")\n"
+       << indent(2) << "return choice\n\n";
+    return ss.str();
 }
 
 std::string PythonGenerator::generateEnums()
@@ -979,11 +990,11 @@ std::string PythonGenerator::generateActionClasses()
             }
             else if (name == "guard_action")
             {
-                ss << indent(2) << "guard = game._get_player_by_role(Role.GUARD)\n"
+                ss << indent(2) << "guard = game.get_player_by_role(Role.GUARD)\n"
                    << indent(2) << "if not guard: return\n"
                    << indent(2) << "prompt = \"守卫, 请选择你要守护的玩家 (不能连续两晚守护同一个人): \"\n"
                    << indent(2) << "game.announce(\"守卫请睁眼\" + prompt, visible_to=[guard.name], prefix=\"#@\")\n"
-                   << indent(2) << "alive_players = game._get_alive_players()\n"
+                   << indent(2) << "alive_players = game.get_alive_players()\n"
                    << indent(2) << "valid_targets = [p for p in alive_players if p != game.last_guarded]\n"
                    << indent(2) << "target = guard.choose(prompt, valid_targets)\n"
                    << indent(2) << "game.players[target].is_guarded = True\n"
@@ -993,61 +1004,43 @@ std::string PythonGenerator::generateActionClasses()
             }
             else if (name == "werewolf_night" || name == "werewolf_night_action")
             {
-                ss << indent(2) << "werewolves = game._get_alive_players([Role.WEREWOLF])\n"
+                ss << indent(2) << "werewolves = game.get_alive_players([Role.WEREWOLF])\n"
                    << indent(2) << "if not werewolves: return\n"
                    << indent(2) << "game.announce(\"狼人请睁眼\" + f\"现在的狼人有: {', '.join(werewolves)}\", visible_to=werewolves, prefix=\"#@\")\n"
                    << indent(2) << "if len(werewolves) == 1:\n"
                    << indent(3) << "game.announce(\"独狼无需讨论，直接进入投票阶段\", visible_to=werewolves, prefix=\"#@\")\n"
                    << indent(2) << "else:\n"
-                   << indent(3) << "self._handle_discussion(game, werewolves)\n"
-                   << indent(2) << "self._handle_voting(game, werewolves)\n"
-                   << indent(2) << "game.announce(\"狼人请闭眼\", prefix=\"#@\")\n\n"
-                   << indent(1) << "def _handle_discussion(self, game, werewolves):\n"
-                   << indent(2) << "game.announce(\"狼人请开始讨论, 输入 '0' 表示发言结束, 准备投票\", visible_to=werewolves, prefix=\"#@\")\n"
-                   << indent(2) << "ready_to_vote = set()\n"
-                   << indent(2) << "discussion_rounds = 0\n"
-                   << indent(2) << "max_discussion_rounds = 5\n"
-                   << indent(2) << "while len(ready_to_vote) < len(werewolves) and discussion_rounds < max_discussion_rounds:\n"
-                   << indent(3) << "discussion_rounds += 1\n"
-                   << indent(3) << "for wolf in werewolves:\n"
-                   << indent(4) << "if wolf in ready_to_vote: continue\n"
-                   << indent(4) << "wolf_player = game.players[wolf]\n"
-                   << indent(4) << "action = wolf_player.speak(f\"{wolf}, 请发言或输入 '0' 准备投票: \")\n"
-                   << indent(4) << "if action == \"0\":\n"
-                   << indent(5) << "ready_to_vote.add(wolf)\n"
-                   << indent(5) << "msg = f\"({wolf} 已准备好投票 {len(ready_to_vote)}/{len(werewolves)})\"\n"
-                   << indent(5) << "game.announce(msg, visible_to=werewolves, prefix=\"#@\")\n"
-                   << indent(4) << "elif action:\n"
-                   << indent(5) << "game.announce(f\"[狼人频道] {wolf} 发言: {action}\", visible_to=werewolves, prefix=\"#:\")\n"
-                   << indent(2) << "if discussion_rounds >= max_discussion_rounds and len(ready_to_vote) < len(werewolves):\n"
-                   << indent(3) << "msg = f\"讨论已达到最大轮次({max_discussion_rounds}轮)，强制进入投票阶段\"\n"
-                   << indent(3) << "game.announce(msg, visible_to=werewolves, prefix=\"#@\")\n\n"
-                   << indent(1) << "def _handle_voting(self, game, werewolves):\n"
-                   << indent(2) << "alive_players = game._get_alive_players()\n"
-                   << indent(2) << "game.announce(\"狼人请投票\", visible_to=werewolves, prefix=\"#@\")\n"
-                   << indent(2) << "while True:\n"
-                   << indent(3) << "votes = {name: 0 for name in alive_players}\n"
-                   << indent(3) << "for wolf_name in werewolves:\n"
-                   << indent(4) << "wolf_player = game.players[wolf_name]\n"
-                   << indent(4) << "prompt = f\"{wolf_name}, 请投票选择要击杀的目标: \"\n"
-                   << indent(4) << "target = wolf_player.choose(prompt, alive_players)\n"
-                   << indent(4) << "votes[target] += 1\n"
-                   << indent(3) << "max_votes = max(votes.values())\n"
-                   << indent(3) << "kill_targets = [name for name, count in votes.items() if count == max_votes]\n"
-                   << indent(3) << "if len(kill_targets) == 1:\n"
-                   << indent(4) << "game.killed_player = kill_targets[0]\n"
-                   << indent(4) << "game.announce(f\"狼人投票决定击杀 {game.killed_player}\", visible_to=werewolves, prefix=\"#@\")\n"
-                   << indent(4) << "break\n"
-                   << indent(3) << "else:\n"
-                   << indent(4) << "game.announce(\"狼人投票出现平票, 请重新商议并投票\", visible_to=werewolves, prefix=\"#@\")\n\n";
+                   << indent(3) << "game.process_discussion(\n"
+                   << indent(4) << "werewolves,\n"
+                   << indent(4) << "{\n"
+                   << indent(5) << "'prompt': '{0}, 请发言或输入 \\'0\\' 准备投票: ',\n"
+                   << indent(5) << "'speech': '[狼人频道] {0} 发言: {1}',\n"
+                   << indent(5) << "'ready_msg': '({0} 已准备好投票 {1}/{2})',\n"
+                   << indent(5) << "'start': '狼人请开始讨论, 输入 \\'0\\' 表示发言结束, 准备投票'\n"
+                   << indent(4) << "},\n"
+                   << indent(4) << "max_rounds=5, enable_ready_check=True, visibility=werewolves, prefix=\"#:\"\n"
+                   << indent(3) << ")\n"
+                   << indent(2) << "alive_players = game.get_alive_players()\n"
+                   << indent(2) << "target = game.process_vote(\n"
+                   << indent(3) << "werewolves, alive_players,\n"
+                   << indent(3) << "{\n"
+                   << indent(4) << "'start': '狼人请投票',\n"
+                   << indent(4) << "'prompt': '{0}, 请投票选择要击杀的目标: ',\n"
+                   << indent(4) << "'result_out': '狼人投票决定击杀 {0}',\n"
+                   << indent(4) << "'result_tie': '狼人投票出现平票, 请重新投票'\n"
+                   << indent(3) << "},\n"
+                   << indent(3) << "retry_on_tie=True, visibility=werewolves\n"
+                   << indent(2) << ")\n"
+                   << indent(2) << "game.killed_player = target\n"
+                   << indent(2) << "game.announce(\"狼人请闭眼\", prefix=\"#@\")\n\n";
             }
             else if (name == "seer_action")
             {
-                ss << indent(2) << "seer = game._get_player_by_role(Role.SEER)\n"
+                ss << indent(2) << "seer = game.get_player_by_role(Role.SEER)\n"
                    << indent(2) << "if not seer: return\n"
                    << indent(2) << "prompt = \"预言家, 请选择要查验的玩家: \"\n"
                    << indent(2) << "game.announce(\"预言家请睁眼. 请选择要你要查验的玩家: \", visible_to=[seer.name], prefix=\"#@\")\n"
-                   << indent(2) << "alive_players = game._get_alive_players()\n"
+                   << indent(2) << "alive_players = game.get_alive_players()\n"
                    << indent(2) << "target = seer.choose(prompt, alive_players)\n"
                    << indent(2) << "role = game.players[target].role\n"
                    << indent(2) << "identity = \"狼人\" if role == Role.WEREWOLF.value else \"好人\"\n"
@@ -1056,10 +1049,10 @@ std::string PythonGenerator::generateActionClasses()
             }
             else if (name == "witch_action")
             {
-                ss << indent(2) << "witch = game._get_player_by_role(Role.WITCH)\n"
+                ss << indent(2) << "witch = game.get_player_by_role(Role.WITCH)\n"
                    << indent(2) << "if not witch: return\n"
                    << indent(2) << "game.announce(\"女巫请睁眼\", visible_to=[witch.name], prefix=\"#@\")\n"
-                   << indent(2) << "alive_players = game._get_alive_players()\n"
+                   << indent(2) << "alive_players = game.get_alive_players()\n"
                    << indent(2) << "actual_killed = None\n"
                    << indent(2) << "if game.killed_player:\n"
                    << indent(3) << "if game.players[game.killed_player].is_guarded:\n"
@@ -1095,32 +1088,31 @@ std::string PythonGenerator::generateActionClasses()
             }
             else if (name == "day_discussion")
             {
-                ss << indent(2) << "alive_players = game._get_alive_players()\n"
-                   << indent(2) << "game.announce(f\"场上存活的玩家: {', '.join(alive_players)}\", prefix=\"#@\")\n"
-                   << indent(2) << "for player_name in alive_players:\n"
-                   << indent(3) << "player = game.players[player_name]\n"
-                   << indent(3) << "speech = player.speak(f\"{player_name}, 请发言: \")\n"
-                   << indent(3) << "game.announce(f\"{player_name} 发言: {speech}\", prefix=\"#:\")\n\n";
+                ss << indent(2) << "alive_players = game.get_alive_players()\n"
+                   << indent(2) << "game.process_discussion(\n"
+                   << indent(3) << "alive_players,\n"
+                   << indent(3) << "{\n"
+                   << indent(4) << "'start': f\"场上存活的玩家: {', '.join(alive_players)}\",\n"
+                   << indent(4) << "'prompt': '{0}, 请发言: ',\n"
+                   << indent(4) << "'speech': '{0} 发言: {1}'\n"
+                   << indent(3) << "}\n"
+                   << indent(2) << ")\n\n";
             }
             else if (name == "day_vote")
             {
-                ss << indent(2) << "alive_players = game._get_alive_players()\n"
-                   << indent(2) << "game.announce(\"请开始投票\", prefix=\"#@\")\n"
-                   << indent(2) << "votes = {name: 0 for name in alive_players}\n"
-                   << indent(2) << "for voter_name in alive_players:\n"
-                   << indent(3) << "voter = game.players[voter_name]\n"
-                   << indent(3) << "prompt = f\"{voter_name}, 请投票: \"\n"
-                   << indent(3) << "target = voter.choose(prompt, alive_players)\n"
-                   << indent(3) << "votes[target] += 1\n"
-                   << indent(3) << "game.announce(f\"{voter_name} 投票给 {target}\", prefix=\"#:\")\n"
-                   << indent(2) << "max_votes = max(votes.values())\n"
-                   << indent(2) << "voted_out_players = [name for name, count in votes.items() if count == max_votes]\n"
-                   << indent(2) << "if len(voted_out_players) == 1:\n"
-                   << indent(3) << "voted_out_player = voted_out_players[0]\n"
-                   << indent(3) << "game.announce(f\"投票结果: {voted_out_player} 被投票出局\", prefix=\"#!\")\n"
-                   << indent(3) << "game.handle_death(voted_out_player, DeathReason.VOTED_OUT)\n"
-                   << indent(2) << "else:\n"
-                   << indent(3) << "game.announce(\"投票平票, 无人出局\", prefix=\"#@\")\n\n";
+                ss << indent(2) << "alive_players = game.get_alive_players()\n"
+                   << indent(2) << "target = game.process_vote(\n"
+                   << indent(3) << "alive_players, alive_players,\n"
+                   << indent(3) << "{\n"
+                   << indent(4) << "'start': '请开始投票',\n"
+                   << indent(4) << "'prompt': '{0}, 请投票: ',\n"
+                   << indent(4) << "'action': '{0} 投票给 {1}',\n"
+                   << indent(4) << "'result_out': '投票结果: {0} 被投票出局',\n"
+                   << indent(4) << "'result_tie': '投票平票, 无人出局'\n"
+                   << indent(3) << "}\n"
+                   << indent(2) << ")\n"
+                   << indent(2) << "if target:\n"
+                   << indent(3) << "game.handle_death(target, DeathReason.VOTED_OUT)\n\n";
             }
             continue;
         }
@@ -1169,31 +1161,21 @@ std::string PythonGenerator::generateActionClasses()
 
         if (name == "guard_action")
         {
-            ss << indent(2) << "guard = game._get_player_by_role(Role.GUARD)\n"
+            ss << indent(2) << "guard = game.get_player_by_role(Role.GUARD)\n"
                << indent(2) << "if not guard: return\n";
         }
         else if (name == "seer_action")
         {
-            ss << indent(2) << "seer = game._get_player_by_role(Role.SEER)\n"
+            ss << indent(2) << "seer = game.get_player_by_role(Role.SEER)\n"
                << indent(2) << "if not seer: return\n";
         }
         else if (name == "witch_action")
         {
-            ss << indent(2) << "witch = game._get_player_by_role(Role.WITCH)\n"
+            ss << indent(2) << "witch = game.get_player_by_role(Role.WITCH)\n"
                << indent(2) << "if not witch: return\n";
         }
 
-        for (auto &stmt : a.bodyLines)
-        {
-            if (name == "guard_action" && stmt.find("target =") != std::string::npos)
-            {
-                ss << indent(2) << "target = guard.choose(prompt, valid_targets)\n";
-                ss << indent(2) << "if target:\n"
-                   << indent(3) << "game.players[target].is_guarded = True\n";
-                continue;
-            }
-            ss << indent(2) << stmt << "\n";
-        }
+        ss << translateBody(a.bodyLines, 2, "game.");
         ss << "\n";
     }
     return ss.str();
@@ -1205,63 +1187,20 @@ std::string PythonGenerator::generateGameClass()
     ss << "class " << result.gameName << "(Game):\n";
     ss << generateInit()
        << generateInitPhases()
-       << generateRunPhase()
-       << generateGetAlivePlayers()
-       << generateGetPlayerByRole()
        << generateCancel()
        << generateSetupGame()
        << generateHandleDeath()
        << generateHandleHunterShot()
-       << generateCheckGameOver()
-       << generateRunGame();
-    return ss.str();
-}
-
-std::string PythonGenerator::generateRunPhase()
-{
-    std::stringstream ss;
-    ss << indent(1) << "def run_phase(self, phase: GamePhase):\n"
-       << indent(2) << "for step in phase.steps:\n"
-       << indent(3) << "if not self._running or self.check_game_over():\n"
-       << indent(4) << "return\n\n"
-       << indent(3) << "context = ActionContext(game=self)\n"
-       << indent(3) << "step.action.execute(context)\n\n";
-    return ss.str();
-}
-
-std::string PythonGenerator::generateGetAlivePlayers()
-{
-    std::stringstream ss;
-    ss << indent(1) << "def _get_alive_players(self, roles: Optional[List[Role]] = None) -> List[str]:\n"
-       << indent(2) << "alive_players = []\n"
-       << indent(2) << "role_values = []\n"
-       << indent(2) << "if roles:\n"
-       << indent(3) << "for r in roles:\n"
-       << indent(4) << "role_values.append(r.value)\n\n"
-       << indent(2) << "for name, p in self.players.items():\n"
-       << indent(3) << "if p.is_alive:\n"
-       << indent(4) << "if roles is None or p.role in role_values:\n"
-       << indent(5) << "alive_players.append(name)\n"
-       << indent(2) << "return alive_players\n\n";
-    return ss.str();
-}
-
-std::string PythonGenerator::generateGetPlayerByRole()
-{
-    std::stringstream ss;
-    ss << indent(1) << "def _get_player_by_role(self, role: Role) -> Optional[Player]:\n"
-       << indent(2) << "for p in self.players.values():\n"
-       << indent(3) << "if p.role == role.value and p.is_alive:\n"
-       << indent(4) << "return p\n"
-       << indent(2) << "return None\n\n";
+       << generateCheckGameOver();
     return ss.str();
 }
 
 std::string PythonGenerator::generateCancel()
 {
     std::stringstream ss;
-    ss << indent(1) << "def _cancel(self):\n"
-       << indent(2) << "self.announce(\"游戏已取消.\", prefix=\"#!\")\n"
+    ss << indent(1) << "def stop_game(self):\n"
+       << indent(2) << "super().stop_game()\n"
+       << indent(2) << "self.announce(\"游戏已停止/取消.\", prefix=\"#!\")\n"
        << indent(2) << "self.players.clear()\n"
        << indent(2) << "self.roles.clear()\n"
        << indent(2) << "self.all_player_names.clear()\n"
@@ -1276,14 +1215,16 @@ std::string PythonGenerator::generateCancel()
 std::string PythonGenerator::generateInit()
 {
     std::stringstream ss;
-    ss << indent(1) << "def __init__(self, players: List[Dict[str, str]]):\n"
-       << indent(2) << "super().__init__(\"werewolf\", players)\n"
+    std::string lowerGameName = result.gameName;
+    for (auto &c : lowerGameName)
+        c = (char)tolower(c);
+    ss << indent(1) << "def __init__(self, players: List[Dict[str, str]], event_emitter=None, input_handler=None):\n"
+       << indent(2) << "super().__init__(\"" << lowerGameName << "\", players, event_emitter, input_handler)\n"
        << indent(2) << "self.roles: Dict[str, int] = {}\n"
        << indent(2) << "self.killed_player: Optional[str] = None\n"
        << indent(2) << "self.last_guarded: Optional[str] = None\n"
        << indent(2) << "self.witch_save_used = False\n"
-       << indent(2) << "self.witch_poison_used = False\n"
-       << indent(2) << "self._init_phases()\n\n";
+       << indent(2) << "self.witch_poison_used = False\n\n";
     return ss.str();
 }
 
@@ -1342,32 +1283,9 @@ std::string PythonGenerator::generateSetupGame()
     std::stringstream ss;
     ss << indent(1) << "def setup_game(self):\n"
        << indent(2) << "game_dir = Path(__file__).resolve().parent\n"
-       << indent(2) << "config_path = game_dir / \"config.json\"\n"
-       << indent(2) << "prompt_path = game_dir / \"prompt.json\"\n\n"
-       << indent(2) << "try:\n"
-       << indent(3) << "with open(config_path, \"r\", encoding=\"utf-8\") as file:\n"
-       << indent(4) << "config = json.load(file)\n"
-       << indent(4) << "if not self._players:\n"
-       << indent(5) << "player_configs = config.get(\"players\", [])\n"
-       << indent(5) << "self._players = []\n"
-       << indent(5) << "for p in player_configs:\n"
-       << indent(6) << "self._players.append({\"player_name\": p[\"name\"], \"player_uuid\": p.get(\"uuid\", p[\"name\"]), **p})\n\n"
-       << indent(4) << "self.all_player_names = [p.get(\"player_name\", \"\") for p in self._players]\n"
-       << indent(4) << "player_names = self.all_player_names\n"
-       << indent(4) << "self.player_config_map = {}\n"
-       << indent(4) << "for p in config.get(\"players\", []): self.player_config_map[p[\"name\"]] = p\n"
-       << indent(4) << "for p in self._players:\n"
-       << indent(5) << "name = p.get(\"player_name\")\n"
-       << indent(5) << "if name:\n"
-       << indent(6) << "if name not in self.player_config_map: self.player_config_map[name] = {}\n"
-       << indent(6) << "self.player_config_map[name].update(p)\n"
-       << indent(4) << "player_config_map = self.player_config_map\n\n"
-       << indent(3) << "with open(prompt_path, \"r\", encoding=\"utf-8\") as file:\n"
-       << indent(4) << "prompts = json.load(file)\n"
-       << indent(2) << "except (FileNotFoundError, KeyError, ValueError) as e:\n"
-       << indent(3) << "self.logger.system_logger.error(f\"配置文件或提示词文件有错: {str(e)}\")\n"
-       << indent(3) << "return\n\n"
+       << indent(2) << "config, prompts, player_config_map = self.load_basic_config(game_dir)\n\n"
        << indent(2) << "player_count = len(self.all_player_names)\n"
+       << indent(2) << "player_names = self.all_player_names\n\n"
        << indent(2) << "if player_count == 6:\n"
        << indent(3) << "self.roles = {Role.WEREWOLF.value: 2, Role.VILLAGER.value: 2, Role.SEER.value: 1, Role.WITCH.value: 1}\n"
        << indent(2) << "else:\n"
@@ -1387,9 +1305,9 @@ std::string PythonGenerator::generateSetupGame()
        << indent(2) << "random.shuffle(role_list)\n\n"
        << indent(2) << "for name, role in zip(player_names, role_list):\n"
        << indent(3) << "p_config = player_config_map.get(name, {})\n"
-       << indent(3) << "player = Player(name, role, p_config, prompts, self.logger)\n"
+       << indent(3) << "player = RobotPlayer(name, role, p_config, prompts, self.logger)\n"
        << indent(3) << "self.players[name] = player\n\n"
-       << indent(2) << "werewolves = self._get_alive_players([Role.WEREWOLF])\n"
+       << indent(2) << "werewolves = self.get_alive_players([Role.WEREWOLF])\n"
        << indent(2) << "self.announce(\"角色分配完成, 正在分发身份牌...\", prefix=\"#@\")\n"
        << indent(2) << "for name, player in self.players.items():\n"
        << indent(3) << "time.sleep(0.1)\n"
@@ -1428,7 +1346,7 @@ std::string PythonGenerator::generateHandleHunterShot()
     std::stringstream ss;
     ss << indent(1) << "def handle_hunter_shot(self, hunter_name: str):\n"
        << indent(2) << "self.announce(f\"{hunter_name} 是猎人, 可以在临死前开枪带走一人\", prefix=\"#@\")\n"
-       << indent(2) << "alive_players_for_shot = [p for p in self._get_alive_players() if p != hunter_name]\n"
+       << indent(2) << "alive_players_for_shot = [p for p in self.get_alive_players() if p != hunter_name]\n"
        << indent(2) << "hunter_player = self.players[hunter_name]\n"
        << indent(2) << "target = hunter_player.choose(f\"{hunter_name}, 请选择你要带走的玩家: \", alive_players_for_shot, allow_skip=True)\n\n"
        << indent(2) << "if target == \"skip\":\n"
@@ -1442,9 +1360,9 @@ std::string PythonGenerator::generateHandleHunterShot()
 std::string PythonGenerator::generateCheckGameOver()
 {
     std::stringstream ss;
-    ss << indent(1) << "def check_game_over(self):\n"
-       << indent(2) << "alive_werewolves = self._get_alive_players([Role.WEREWOLF])\n"
-       << indent(2) << "alive_villagers = self._get_alive_players([Role.VILLAGER, Role.SEER, Role.WITCH, Role.HUNTER, Role.GUARD])\n\n"
+    ss << indent(1) << "def check_game_over(self) -> bool:\n"
+       << indent(2) << "alive_werewolves = self.get_alive_players([Role.WEREWOLF])\n"
+       << indent(2) << "alive_villagers = self.get_alive_players([Role.VILLAGER, Role.SEER, Role.WITCH, Role.HUNTER, Role.GUARD])\n\n"
        << indent(2) << "if not alive_werewolves:\n"
        << indent(3) << "self.announce(\"游戏结束, 好人阵营胜利!\", prefix=\"#!\")\n"
        << indent(3) << "return True\n"
@@ -1452,18 +1370,6 @@ std::string PythonGenerator::generateCheckGameOver()
        << indent(3) << "self.announce(\"游戏结束, 狼人阵营胜利!\", prefix=\"#!\")\n"
        << indent(3) << "return True\n"
        << indent(2) << "return False\n\n";
-    return ss.str();
-}
-
-std::string PythonGenerator::generateRunGame()
-{
-    std::stringstream ss;
-    ss << indent(1) << "def run_game(self):\n"
-       << indent(2) << "self.setup_game()\n"
-       << indent(2) << "while not self.check_game_over():\n"
-       << indent(3) << "for phase in self.phases:\n"
-       << indent(4) << "self.run_phase(phase)\n"
-       << indent(4) << "if self.check_game_over(): break\n\n";
     return ss.str();
 }
 

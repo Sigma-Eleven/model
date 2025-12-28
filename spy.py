@@ -15,7 +15,7 @@ from src.Player import Player
 
 from Game import ActionContext, GameAction, GameStep, GamePhase, Game
 
-BASE = Path(__file__).resolve().parent.parent.parent
+BASE = Path(__file__).resolve().parent.parent
 SRC_DIR = BASE / "src"
 
 sys.path.append(str(BASE))
@@ -40,7 +40,7 @@ class DescribeAction(GameAction):
 
     def execute(self, context: ActionContext) -> Any:
         game = context.game
-        println ( "玩家描述了: " + content ) 
+        game.announce(f"玩家描述了: {content}")
 
 class VoteAction(GameAction):
     def description(self) -> str:
@@ -48,11 +48,11 @@ class VoteAction(GameAction):
 
     def execute(self, context: ActionContext) -> Any:
         game = context.game
-        println ( "玩家投给了: " + target ) 
+        game.announce(f"玩家投给了: {target}")
 
 class WhoIsTheSpy(Game):
-    def __init__(self, players: List[Dict[str, str]]):
-        super().__init__("werewolf", players)
+    def __init__(self, players: List[Dict[str, str]], event_emitter=None, input_handler=None):
+        super().__init__("whoisthespy", players, event_emitter, input_handler)
         self.roles: Dict[str, int] = {}
         self.killed_player: Optional[str] = None
         self.last_guarded: Optional[str] = None
@@ -113,17 +113,17 @@ class WhoIsTheSpy(Game):
         try:
             with open(config_path, "r", encoding="utf-8") as file:
                 config = json.load(file)
-                if not self._players:
+                if not self._players_data:
                     player_configs = config.get("players", [])
-                    self._players = []
+                    self._players_data = []
                     for p in player_configs:
-                        self._players.append({"player_name": p["name"], "player_uuid": p.get("uuid", p["name"]), **p})
+                        self._players_data.append({"player_name": p["name"], "player_uuid": p.get("uuid", p["name"]), **p})
 
-                self.all_player_names = [p.get("player_name", "") for p in self._players]
+                self.all_player_names = [p.get("player_name", "") for p in self._players_data]
                 player_names = self.all_player_names
                 self.player_config_map = {}
                 for p in config.get("players", []): self.player_config_map[p["name"]] = p
-                for p in self._players:
+                for p in self._players_data:
                     name = p.get("player_name")
                     if name:
                         if name not in self.player_config_map: self.player_config_map[name] = {}
