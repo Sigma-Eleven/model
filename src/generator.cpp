@@ -463,11 +463,20 @@ std::string PythonGenerator::normalizeExpression(const std::string &expr_raw)
     fxc("f \'", "f\'");
     // Map role strings to Role enum
     static const std::vector<std::pair<std::string, std::string>> roleMaps = {
-        {"werewolf", "WEREWOLF"}, {"villager", "VILLAGER"}, {"seer", "SEER"}, {"witch", "WITCH"}, {"hunter", "HUNTER"}, {"guard", "GUARD"}};
+        {"werewolf", "WEREWOLF"}, {"villager", "VILLAGER"}, {"seer", "SEER"}, {"witch", "WITCH"}, {"hunter", "HUNTER"}, {"guard", "GUARD"}, {"civilian", "CIVILIAN"}, {"spy", "SPY"}};
     for (auto &rm : roleMaps)
     {
         fxc("\"" + rm.first + "\"", "Role." + rm.second + ".value");
         fxc("\'" + rm.first + "\'", "Role." + rm.second + ".value");
+    }
+
+    // Also map any roles defined in DSL enum block
+    for (auto &r : result.roles)
+    {
+        std::string upperR = r;
+        std::transform(upperR.begin(), upperR.end(), upperR.begin(), ::toupper);
+        fxc("\"" + r + "\"", "Role." + upperR + ".value");
+        fxc("\'" + r + "\'", "Role." + upperR + ".value");
     }
 
     // Map death reason strings to DeathReason enum
@@ -716,6 +725,16 @@ std::string PythonGenerator::translateBody(const std::vector<std::string> &lines
                         {
                             std::string target = content.substr(p1 + 1, p2 - p1 - 1);
                             gLs.push_back({cur, "self.handle_death(" + target + ", DeathReason.VOTED_OUT)"});
+                            continue;
+                        }
+                    }
+                    else if (content.find("被猎人带走") != std::string::npos)
+                    {
+                        size_t p1 = content.find("{"), p2 = content.find("}");
+                        if (p1 != std::string::npos && p2 != std::string::npos)
+                        {
+                            std::string target = content.substr(p1 + 1, p2 - p1 - 1);
+                            gLs.push_back({cur, "self.handle_death(" + target + ", DeathReason.SHOT_BY_HUNTER)"});
                             continue;
                         }
                     }

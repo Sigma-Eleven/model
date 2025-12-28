@@ -30,12 +30,9 @@ void WolfDSLInterpreter::run()
         std::cerr << "DSL执行终止: " << env_.error_msg << std::endl;
         return;
     }
-
-    // 基础日志
     std::cout << "开始执行DSL: " << env_.game_name << std::endl;
     std::cout << "角色列表: " << env_.roles.size() << " 个" << std::endl;
 
-    // 执行 setup
     if (!parse_result_.setup.bodyLines.empty())
     {
         std::cout << "\n[初始化] 执行 setup 块..." << std::endl;
