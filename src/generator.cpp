@@ -60,7 +60,11 @@ PythonGenerator::PythonGenerator(const WolfParseResult &result) : result(result)
                     while (e < t.size() && (isalnum(t[e]) || t[e] == '_'))
                         e++;
                     std::string v = clean(t.substr(s, e - s));
-                    static const std::set<std::string> skip = {"role", "count", "player", "voter", "name", "teammates", "role_str", "alive_players", "werewolves", "voted_out", "player_name", "valid_targets"};
+                    static const std::set<std::string> skip = {
+                        "role", "count", "player", "voter", "name", "teammates", "role_str",
+                        "alive_players", "werewolves", "voted_out", "player_name", "valid_targets",
+                        "target", "identity", "use_save", "use_poison", "votes", "max_votes",
+                        "voted_out_players", "speech", "content"};
                     if (!v.empty() && !skip.count(v))
                         varNames.insert(v);
                     break;
@@ -71,7 +75,10 @@ PythonGenerator::PythonGenerator(const WolfParseResult &result) : result(result)
     static const std::vector<std::string> engineMembers = {"logger", "players", "all_player_names", "day_number", "killed_player", "last_guarded", "witch_save_used", "witch_poison_used", "role_config"};
     for (auto &m : engineMembers)
         varNames.insert(m);
-    static const std::vector<std::string> engineMethods = {"_get_alive_players", "_get_player_by_role", "handle_death", "handle_hunter_shot", "check_game_over", "run_game", "run_phase"};
+    static const std::vector<std::string> engineMethods = {
+        "_get_alive_players", "_get_player_by_role", "handle_death",
+        "handle_hunter_shot", "check_game_over", "run_game", "run_phase",
+        "get_alive_players", "get_player_by_role"};
     for (auto &m : engineMethods)
     {
         varNames.insert(m);

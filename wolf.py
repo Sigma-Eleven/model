@@ -143,10 +143,10 @@ class WerewolfGame(GameEngine):
         for p in alive_players:
             if p != self.last_guarded:
                 valid_targets.append(p)
-        self.target = ""
-        print(f"#@ 守卫选择守护: {self.target}")
-        self.logger.log_event(f"#@ 守卫选择守护: {self.target}", self.all_player_names)
-        self.last_guarded = self.target
+        target = ""
+        print(f"#@ 守卫选择守护: {target}")
+        self.logger.log_event(f"#@ 守卫选择守护: {target}", self.all_player_names)
+        self.last_guarded = target
         print("#@ 守卫请闭眼")
         self.logger.log_event("#@ 守卫请闭眼", self.all_player_names)
         print("#@ 守卫行动完成，已标记守护目标")
@@ -193,11 +193,11 @@ class WerewolfGame(GameEngine):
         print(self.prompt)
         self.logger.log_event(self.prompt, self.all_player_names)
         alive_players = self._get_alive_players(None)
-        self.target = ""
+        target = ""
         role = ""
-        self.identity = "狼人" if(role == Role.WEREWOLF.value) else "好人"
-        print(f"#@ 查验结果: {self.target} 的身份是 {self.identity}")
-        self.logger.log_event(f"#@ 查验结果: {self.target} 的身份是 {self.identity}", self.all_player_names)
+        identity = "狼人" if(role == Role.WEREWOLF.value) else "好人"
+        print(f"#@ 查验结果: {target} 的身份是 {identity}")
+        self.logger.log_event(f"#@ 查验结果: {target} 的身份是 {identity}", self.all_player_names)
         print("#@ 预言家请闭眼")
         self.logger.log_event("#@ 预言家请闭眼", self.all_player_names)
 
@@ -213,24 +213,24 @@ class WerewolfGame(GameEngine):
                 print(f"#@ 今晚 {self.killed_player} 被杀害了")
                 self.logger.log_event(f"#@ 今晚 {self.killed_player} 被杀害了", self.all_player_names)
                 if  not  self.witch_save_used:
-                    self.use_save = ""
-                    if self.use_save == "y":
+                    use_save = ""
+                    if use_save == "y":
                         self.witch_save_used = True
                         print(f"#@ 你使用解药救了 {self.killed_player}")
                         self.logger.log_event(f"#@ 你使用解药救了 {self.killed_player}", self.all_player_names)
                         self.killed_player = ""
         if  not  self.witch_poison_used:
-            self.use_poison = ""
-            if self.use_poison == "y":
+            use_poison = ""
+            if use_poison == "y":
                 alive_players = self._get_alive_players(None)
-                self.target = ""
+                target = ""
                 self.witch_poison_used = True
-                print(f"#@ 你使用毒药毒了 {self.target}")
-                self.logger.log_event(f"#@ 你使用毒药毒了 {self.target}", self.all_player_names)
+                print(f"#@ 你使用毒药毒了 {target}")
+                self.logger.log_event(f"#@ 你使用毒药毒了 {target}", self.all_player_names)
                 if self.killed_player == "":
-                    self.killed_player = self.target
+                    self.killed_player = target
                 else:
-                    self.handle_death(self.target, DeathReason.POISONED_BY_WITCH)
+                    self.handle_death(target, DeathReason.POISONED_BY_WITCH)
         print("#@ 女巫请闭眼")
         self.logger.log_event("#@ 女巫请闭眼", self.all_player_names)
 
@@ -253,33 +253,33 @@ class WerewolfGame(GameEngine):
         print(f"#@ 场上存活的玩家: {', '.join(alive_players)}")
         self.logger.log_event(f"#@ 场上存活的玩家: {', '.join(alive_players)}", self.all_player_names)
         for player in alive_players:
-            self.speech = ""
-            print(f"#: {player} 发言: {self.speech}")
-            self.logger.log_event(f"#: {player} 发言: {self.speech}", self.all_player_names)
+            speech = ""
+            print(f"#: {player} 发言: {speech}")
+            self.logger.log_event(f"#: {player} 发言: {speech}", self.all_player_names)
 
     def action_day_vote(self, target=None):
         print("#@ 请开始投票")
         self.logger.log_event("#@ 请开始投票", self.all_player_names)
         alive_players = self._get_alive_players(None)
-        self.votes = {
+        votes = {
         }
         for player in alive_players:
-            self.votes[player] = 0
+            votes[player] = 0
         for voter in alive_players:
-            self.target = ""
-            self.votes[self.target] = self.votes[self.target] + 1
-            print(f"#: {voter} 投票给 {self.target}")
-            self.logger.log_event(f"#: {voter} 投票给 {self.target}", self.all_player_names)
-        self.max_votes = 0
-        self.voted_out_players =[]
+            target = ""
+            votes[target] = votes[target] + 1
+            print(f"#: {voter} 投票给 {target}")
+            self.logger.log_event(f"#: {voter} 投票给 {target}", self.all_player_names)
+        max_votes = 0
+        voted_out_players =[]
         for player in alive_players:
-            if self.votes[player] > self.max_votes:
-                self.max_votes = self.votes[player]
-                self.voted_out_players =[player]
-            elif self.votes[player] == self.max_votes:
-                self.voted_out_players.append(player)
-        if len(self.voted_out_players) == 1:
-            voted_out = self.voted_out_players[0]
+            if votes[player] > max_votes:
+                max_votes = votes[player]
+                voted_out_players =[player]
+            elif votes[player] == max_votes:
+                voted_out_players.append(player)
+        if len(voted_out_players) == 1:
+            voted_out = voted_out_players[0]
             self.handle_death(voted_out, DeathReason.VOTED_OUT)
             role = ""
             if role == Role.HUNTER.value:
