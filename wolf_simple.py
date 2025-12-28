@@ -4,77 +4,60 @@ Game: WerewolfSimple
 """
 
 import random
+import sys
+import json
 import time
 from pathlib import Path
-from typing import List, Dict, Optional
+from enum import Enum
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional, Any, Callable, Union
 
-# Engine Imports
-from game.engine import Game, GamePhase, GameStep, GameAction
-from game.models import Role, DeathReason
-from game.player import Player
-
-
-# ==========================================
-# Action Classes
-# ==========================================
+try:
+    from engine import ActionContext, GameAction, GameStep, GamePhase, Role, DeathReason, GameEngine
+except ImportError:
+    from .engine import ActionContext, GameAction, GameStep, GamePhase, Role, DeathReason, GameEngine
 
 class KillAction(GameAction):
-    """Action class for DSL action: kill"""
-    def execute(self, game, player, target=None):
-        game.action_kill(target)
+    def description(self)->str: return "Kill"
+    def execute(self, context:ActionContext)->Any: return context.game.action_kill(context.target)
 
 class VoteAction(GameAction):
-    """Action class for DSL action: vote"""
-    def execute(self, game, player, target=None):
-        game.action_vote(target)
+    def description(self)->str: return "Vote"
+    def execute(self, context:ActionContext)->Any: return context.game.action_vote(context.target)
 
-# ==========================================
-# Main Game Class
-# ==========================================
+class WerewolfSimple(GameEngine):
+    """WerewolfSimple implementation."""
 
-class WerewolfSimple(Game):
-    """WerewolfSimple implementation generated from DSL."""
-
-    def __init__(self, players: List[Dict[str, str]], event_emitter=None, input_handler=None):
-        super().__init__("WerewolfSimple", players, event_emitter, input_handler)
-
-        # DSL Global Variables
+    def __init__(self, players_data: List[Dict[str, Any]]):
+        super().__init__(players_data)
         self.day_count = 1
-        self.game_over = False
-
         self._init_phases()
 
     def _init_phases(self):
-        """Initialize game phases and steps from DSL."""
         night = GamePhase("night")
-        night.add_step(GameStep("kill", [Role.werewolf], KillAction()))
+        night.add_step(GameStep("kill", [Role.WEREWOLF], KillAction()))
         self.phases.append(night)
-
         day = GamePhase("day")
-        day.add_step(GameStep("vote", [Role.werewolf, Role.villager], VoteAction()))
+        day.add_step(GameStep("vote", [Role.WEREWOLF, Role.VILLAGER], VoteAction()))
         self.phases.append(day)
 
     def setup_game(self):
-        """Custom game setup logic from DSL."""
-        super().setup_game()  # Call engine base setup
-        # DSL Custom Logic
-        print("狼人杀简化版启动。") self.day_count = 1 self.game_over = False
+        print("狼人杀简化版启动。")
+        self.logger.log_event("狼人杀简化版启动。", self.all_player_names)
+        self.day_count = 1
+        self.game_over = False
 
-    def action_kill(self, target):
-        print(f"狼人杀害了:  {target}")
+    def action_kill(self, target=None):
+        print(f"狼人杀害了: {target}")
+        self.logger.log_event(f"狼人杀害了: {target}", self.all_player_names)
 
-    def action_vote(self, target):
-        print(f"投票给了:  {target}")
-
-    # ------------------------------------------
-    def get_alive_players(self, roles: Optional[List] = None) -> List[str]:
-        """Get names of alive players, optionally filtered by roles."""
-        return [name for name, p in self.players.items() 
-                    if p.is_alive and (roles is None or p.role in [getattr(r, 'value', r) for r in roles])]
+    def action_vote(self, target=None):
+        print(f"投票给了: {target}")
+        self.logger.log_event(f"投票给了: {target}", self.all_player_names)
 
 if __name__ == "__main__":
-    # Simple test execution
-    players_data = [{'name': f'Player{i}'} for i in range(6)]
-    game_instance = WerewolfSimple(players_data)
-    game_instance.setup_game()
-    print(f"Game '{game_instance.name}' initialized with {len(game_instance.phases)} phases.")
+    game = WerewolfSimple([{'player_name': f'Player{i}'} for i in range(12)])
+    try: game.run_game()
+    except KeyboardInterrupt: pass
+    except Exception as e: print(e); import traceback; traceback.print_exc()
