@@ -309,7 +309,7 @@ game WerewolfGame {
         // 输出角色配置
         str[] role_str = []
         for (role, count) {
-            role_str.push(role.capitalize() + " " + count + "人")
+            role_str.push(f"{role.capitalize()} {count}人")
         }
         println("#@ 本局游戏角色配置: " + role_str.join(", "))
         
