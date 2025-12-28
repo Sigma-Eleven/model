@@ -36,5 +36,6 @@ private:
     std::string generateInit();
     std::string generateInitPhases();
     std::string generateSetupGame();
+    std::string generateCoreHelpers();
     std::string generateDSLMethods();
 };

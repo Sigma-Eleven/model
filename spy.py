@@ -4,69 +4,83 @@ Game: WhoIsTheSpy
 """
 
 import random
-import sys
-import json
 import time
 from pathlib import Path
-from enum import Enum
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Any, Callable, Union
+from typing import List, Dict, Optional
 
-try:
-    from engine import ActionContext, GameAction, GameStep, GamePhase, Role, DeathReason, GameEngine
-except ImportError:
-    from .engine import ActionContext, GameAction, GameStep, GamePhase, Role, DeathReason, GameEngine
+# Engine Imports
+from game.engine import Game, GamePhase, GameStep, GameAction
+from game.models import Role, DeathReason
+from game.player import Player
+
+
+# ==========================================
+# Action Classes
+# ==========================================
 
 class DescribeAction(GameAction):
-    def description(self)->str: return "Describe"
-    def execute(self, context:ActionContext)->Any: return context.game.action_describe(context.target)
+    """Action class for DSL action: describe"""
+    def execute(self, game, player, target=None):
+        game.action_describe(target)
 
 class VoteAction(GameAction):
-    def description(self)->str: return "Vote"
-    def execute(self, context:ActionContext)->Any: return context.game.action_vote(context.target)
+    """Action class for DSL action: vote"""
+    def execute(self, game, player, target=None):
+        game.action_vote(target)
 
-class WhoIsTheSpy(GameEngine):
-    """WhoIsTheSpy implementation."""
+# ==========================================
+# Main Game Class
+# ==========================================
 
-    def __init__(self, players_data: List[Dict[str, Any]]):
-        super().__init__(players_data)
+class WhoIsTheSpy(Game):
+    """WhoIsTheSpy implementation generated from DSL."""
+
+    def __init__(self, players: List[Dict[str, str]], event_emitter=None, input_handler=None):
+        super().__init__("WhoIsTheSpy", players, event_emitter, input_handler)
+
+        # DSL Global Variables
         self.civilian_count = 5
         self.civilian_word = "番茄"
+        self.game_over = False
         self.spy_count = 1
         self.spy_word = "西红柿"
+
         self._init_phases()
 
     def _init_phases(self):
+        """Initialize game phases and steps from DSL."""
         round_phase = GamePhase("round_phase")
-        round_phase.add_step(GameStep("description", [Role.CIVILIAN, Role.SPY], DescribeAction()))
-        round_phase.add_step(GameStep("voting", [Role.CIVILIAN, Role.SPY], VoteAction()))
+        round_phase.add_step(GameStep("description", [Role.civilian, Role.spy], DescribeAction()))
+        round_phase.add_step(GameStep("voting", [Role.civilian, Role.spy], VoteAction()))
         self.phases.append(round_phase)
 
     def setup_game(self):
+        """Custom game setup logic from DSL."""
+        super().setup_game()  # Call engine base setup
+        # DSL Custom Logic
         print("谁是卧底游戏开始！")
-        self.logger.log_event("谁是卧底游戏开始！", self.all_player_names)
-        print(f"本局共有 {self.spy_count} 名卧底和 {self.civilian_count} 名平民")
-        self.logger.log_event(f"本局共有 {self.spy_count} 名卧底和 {self.civilian_count} 名平民", self.all_player_names)
+        print(f"本局共有  {self.spy_count}  名卧底和  {self.civilian_count}  名平民")
         print("正在为玩家分配角色和词语...")
-        self.logger.log_event("正在为玩家分配角色和词语...", self.all_player_names)
-        self.total_players = self.spy_count + self.civilian_count
-        for i in self.total_players:
-            print(f"为玩家 {i} 分配了词语")
-            self.logger.log_event(f"为玩家 {i} 分配了词语", self.all_player_names)
+        total_players = self.spy_count + self.civilian_count
+        for i in range(total_players):
+            print(f"为玩家  {i}  分配了词语")
         print("初始化完成，游戏进入第一轮。")
-        self.logger.log_event("初始化完成，游戏进入第一轮。", self.all_player_names)
 
-    def action_describe(self, target=None, content=None):
-        print(f"玩家描述了: {content}")
-        self.logger.log_event(f"玩家描述了: {content}", self.all_player_names)
+    def action_describe(self, content):
+        print(f"玩家描述了:  {content}")
 
-    def action_vote(self, target=None):
-        print(f"玩家投给了: {target}")
-        self.logger.log_event(f"玩家投给了: {target}", self.all_player_names)
+    def action_vote(self, target):
+        print(f"玩家投给了:  {target}")
+
+    # ------------------------------------------
+    def get_alive_players(self, roles: Optional[List] = None) -> List[str]:
+        """Get names of alive players, optionally filtered by roles."""
+        return [name for name, p in self.players.items() 
+                    if p.is_alive and (roles is None or p.role in [getattr(r, 'value', r) for r in roles])]
 
 if __name__ == "__main__":
-    game = WhoIsTheSpy([{'player_name': f'Player{i}'} for i in range(12)])
-    try: game.run_game()
-    except KeyboardInterrupt: pass
-    except Exception as e: print(e); import traceback; traceback.print_exc()
+    # Simple test execution
+    players_data = [{'name': f'Player{i}'} for i in range(6)]
+    game_instance = WhoIsTheSpy(players_data)
+    game_instance.setup_game()
+    print(f"Game '{game_instance.name}' initialized with {len(game_instance.phases)} phases.")
