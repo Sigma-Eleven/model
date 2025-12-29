@@ -251,7 +251,6 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
-// Visitor Interface
 class ASTVisitor
 {
 public:
@@ -281,7 +280,6 @@ public:
     virtual void visit(GameDecl &node) = 0;
 };
 
-// Implement accept methods inline to avoid linker errors if not separate cpp
 inline void LiteralExpr::accept(ASTVisitor &v) { v.visit(*this); }
 inline void VariableExpr::accept(ASTVisitor &v) { v.visit(*this); }
 inline void BinaryExpr::accept(ASTVisitor &v) { v.visit(*this); }

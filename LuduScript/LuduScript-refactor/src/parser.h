@@ -23,7 +23,6 @@ private:
     Token consume(TokenType type, const std::string& message);
     void error(const Token& token, const std::string& message);
 
-    // Declaration Parsing
     std::unique_ptr<GameDecl> parseGame();
     std::unique_ptr<ConfigDecl> parseConfig();
     std::unique_ptr<RoleDecl> parseRole();
@@ -32,7 +31,6 @@ private:
     std::unique_ptr<PhaseDecl> parsePhase();
     std::unique_ptr<StepDecl> parseStep();
 
-    // Statement Parsing
     std::unique_ptr<Statement> parseStatement();
     std::unique_ptr<BlockStmt> parseBlock();
     std::unique_ptr<LetStmt> parseLet();
@@ -41,7 +39,6 @@ private:
     std::unique_ptr<ReturnStmt> parseReturn();
     std::unique_ptr<Statement> parseExpressionStatement();
 
-    // Expression Parsing
     std::unique_ptr<Expression> parseExpression();
     std::unique_ptr<Expression> parseEquality();
     std::unique_ptr<Expression> parseComparison();

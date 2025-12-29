@@ -26,14 +26,20 @@ game Werewolf {
                 let p = shuffled[i]
                 if (i == 0) {
                     set_data(p, "role", Role.Werewolf)
-                } else if (i == 1) {
-                    set_data(p, "role", Role.Werewolf)
-                } else if (i == 2) {
-                    set_data(p, "role", Role.Seer)
-                } else if (i == 3) {
-                    set_data(p, "role", Role.Witch)
                 } else {
-                    set_data(p, "role", Role.Villager)
+                    if (i == 1) {
+                        set_data(p, "role", Role.Werewolf)
+                    } else {
+                        if (i == 2) {
+                            set_data(p, "role", Role.Seer)
+                        } else {
+                            if (i == 3) {
+                                set_data(p, "role", Role.Witch)
+                            } else {
+                                set_data(p, "role", Role.Villager)
+                            }
+                        }
+                    }
                 }
             }
         }

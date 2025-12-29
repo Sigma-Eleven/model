@@ -67,32 +67,7 @@ def dsl_vote(game, voters, candidates, prompts=None):
             "result_out": "Voting result: {0} is out",
             "result_tie": "Voting tie, no one is out"
         }
-    if "start" in prompts: game.announce(prompts["start"], None, "#@")
-    votes = {name: 0 for name in candidates}
-    for voter_name in voters:
-        voter = game.players.get(voter_name)
-        if not voter or not voter.is_alive: continue
-        prompt = prompts["prompt"].format(voter_name)
-        # Filter candidates: remove self, dead players, and non-role entities
-        voter_candidates = []
-        for c in candidates:
-            p_target = game.players.get(c)
-            if p_target:
-                if not p_target.is_alive or not p_target.role: continue
-                if c == voter_name: continue
-            voter_candidates.append(c)
-        if not voter_candidates: continue
-        target = voter.choose(prompt, voter_candidates)
-        if target in votes: votes[target] += 1
-        if "action" in prompts: game.announce(prompts["action"].format(voter_name, target), None, "#:")
-    max_votes = max(votes.values()) if votes else 0
-    targets = [name for name, count in votes.items() if count == max_votes and count > 0]
-    if len(targets) == 1:
-        winner = targets[0]
-        if "result_out" in prompts: game.announce(prompts["result_out"].format(winner), None, "#!")
-        return winner
-    if "result_tie" in prompts: game.announce(prompts["result_tie"], None, "#@")
-    return None
+    return game.process_vote(voters, candidates, prompts)
 
 def dsl_discussion(game, participants, prompts=None):
     if prompts is None:
