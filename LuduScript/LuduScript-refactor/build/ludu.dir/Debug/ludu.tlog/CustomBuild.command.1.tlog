@@ -1,0 +1,10 @@
+^D:\LUDUSENGINE\LUDUSCRIPT\LUDUSCRIPT-REFACTOR\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/LudusEngine/LuduScript/LuduScript-refactor -BD:/LudusEngine/LuduScript/LuduScript-refactor/build --check-stamp-file D:/LudusEngine/LuduScript/LuduScript-refactor/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
