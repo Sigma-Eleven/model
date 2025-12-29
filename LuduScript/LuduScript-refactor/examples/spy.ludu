@@ -1,0 +1,83 @@
+game SpyGame {
+    config {
+        min_players: 4
+        max_players: 10
+    }
+
+    role Spy "卧底"
+    role Civilian "平民"
+
+    var civilian_word: string = "蒸汽"
+    var spy_word: string = "桑拿"
+    var winner: string = ""
+
+    setup {
+        let players = get_players(None, "all")
+        let shuffled = shuffle(players)
+        
+        // Assign 1 spy, rest civilians
+        let spy_player = shuffled[0]
+        set_data(spy_player, "role", Role.Spy)
+        set_data(spy_player, "word", game.spy_word)
+        
+        for (i in [1, 2, 3]) {
+            // Placeholder
+            let x = 1
+        }
+        
+        // Actually let's use a simpler assignment logic for this demo
+        // since our DSL is still growing
+        for (p in shuffled) {
+            if (p == spy_player) {
+                set_data(p, "role", Role.Spy)
+                set_data(p, "word", game.spy_word)
+            } else {
+                set_data(p, "role", Role.Civilian)
+                set_data(p, "word", game.civilian_word)
+            }
+        }
+        
+        announce("游戏开始，身份和词语已分发")
+    }
+
+    action DescribeAction "描述环节" {
+        description: "玩家轮流描述自己的词语"
+        execute {
+            let alive_players = get_players(None, "alive")
+            for (p in alive_players) {
+                let word = get_data(p, "word")
+                announce("请 " + p + " 开始描述", [p])
+                // process_discussion handles the actual message collection
+                discussion([p])
+            }
+        }
+    }
+
+    action VoteAction "投票环节" {
+        description: "投票选出卧底"
+        execute {
+            let alive_players = get_players(None, "alive")
+            let target = vote(alive_players, alive_players)
+            if (target != None) {
+                announce("投票结果：" + target + " 被处决")
+                kill(target)
+                
+                let target_role = get_role(target)
+                if (target_role == Role.Spy) {
+                    announce("他竟然真的是卧底！")
+                } else {
+                    announce("他只是个无辜的平民...")
+                }
+            }
+        }
+    }
+
+    phase GameLoop "主循环" {
+        step "描述" {
+            action: DescribeAction
+        }
+        step "投票" {
+            action: VoteAction
+        }
+    }
+}

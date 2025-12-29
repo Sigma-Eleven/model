@@ -1,0 +1,192 @@
+game Werewolf {
+    config {
+        min_players: 6
+        max_players: 12
+    }
+
+    role Werewolf "狼人"
+    role Villager "村民"
+    role Seer "预言家"
+    role Witch "女巫"
+
+    var killed_player: string = ""
+    var witch_save_used: bool = false
+    var witch_poison_used: bool = false
+
+    setup {
+        let players = get_players(None, "all")
+        let shuffled = shuffle(players)
+        
+        // Assign roles based on player count
+        // Minimum 6 players expected: 2 Werewolves, 1 Seer, 1 Witch, rest Villagers
+        let num_players = len(shuffled)
+        
+        for (i in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
+            if (i < num_players) {
+                let p = shuffled[i]
+                if (i == 0) {
+                    set_data(p, "role", Role.Werewolf)
+                } else if (i == 1) {
+                    set_data(p, "role", Role.Werewolf)
+                } else if (i == 2) {
+                    set_data(p, "role", Role.Seer)
+                } else if (i == 3) {
+                    set_data(p, "role", Role.Witch)
+                } else {
+                    set_data(p, "role", Role.Villager)
+                }
+            }
+        }
+        
+        announce("游戏开始，身份已分配")
+    }
+
+    action WerewolfAction "狼人行动" {
+        description: "狼人夜间讨论并杀人"
+        execute {
+            let wolves = get_players(Role.Werewolf, "alive")
+            if len(wolves) > 0 {
+                announce("狼人请睁眼", wolves)
+                let target = vote(wolves, get_players(None, "alive"))
+                if target != None {
+                    game.killed_player = target
+                    announce("狼人确认了袭击目标", wolves)
+                }
+                announce("狼人请闭眼", wolves)
+            }
+        }
+    }
+
+    action SeerAction "预言家行动" {
+        description: "预言家查验身份"
+        execute {
+            let seer = get_players(Role.Seer, "alive")
+            if len(seer) > 0 {
+                announce("预言家请睁眼", seer)
+                let target = vote(seer, get_players(None, "alive"))
+                if target != None {
+                    let target_role = get_role(target)
+                    if target_role == Role.Werewolf {
+                        announce("他是狼人", seer)
+                    } else {
+                        announce("他是好人", seer)
+                    }
+                }
+                announce("预言家请闭眼", seer)
+            }
+        }
+    }
+
+    action WitchAction "女巫行动" {
+        description: "女巫使用药水"
+        execute {
+            let witch = get_players(Role.Witch, "alive")
+            if len(witch) > 0 {
+                announce("女巫请睁眼", witch)
+                
+                if game.killed_player != "" {
+                    if game.witch_save_used == false {
+                        announce("今晚死的是 " + game.killed_player + ", 是否使用解药?", witch)
+                        let choice = vote(witch, ["Yes", "No"])
+                        if choice == "Yes" {
+                            game.killed_player = ""
+                            game.witch_save_used = true
+                            announce("女巫使用了解药", witch)
+                        }
+                    }
+                }
+
+                if game.witch_poison_used == false {
+                    announce("是否使用毒药?", witch)
+                    let choice = vote(witch, ["Yes", "No"])
+                    if choice == "Yes" {
+                        let target = vote(witch, get_players(None, "alive"))
+                        if target != None {
+                            kill(target)
+                            game.witch_poison_used = true
+                            announce("女巫使用了毒药", witch)
+                        }
+                    }
+                }
+                announce("女巫请闭眼", witch)
+            }
+        }
+    }
+
+    action DayAction "白天流程" {
+        description: "公布死讯，讨论，投票"
+        execute {
+            // Announce deaths
+            if game.killed_player != "" {
+                announce("昨晚 " + game.killed_player + " 死亡")
+                kill(game.killed_player)
+                game.killed_player = ""
+            } else {
+                announce("昨晚是个平安夜")
+            }
+            
+            // Check Win Condition
+            let wolves = len(get_players(Role.Werewolf, "alive"))
+            let villagers = len(get_players(Role.Villager, "alive"))
+            let seer = len(get_players(Role.Seer, "alive"))
+            let witch = len(get_players(Role.Witch, "alive"))
+            let good_count = villagers + seer + witch
+            
+            if wolves == 0 {
+                stop_game("游戏结束: 好人胜利!")
+            } else {
+                if wolves >= good_count {
+                    stop_game("游戏结束: 狼人胜利!")
+                } else {
+                    // Discussion
+                    let alive = get_players(None, "alive")
+                    discussion(alive)
+                    
+                    // Vote
+                    let voted_out = vote(alive, alive)
+                    if voted_out != None {
+                        announce(voted_out + " 被投票出局")
+                        kill(voted_out)
+                        
+                        // Check Win Condition Again
+                        // Need to re-calculate counts or just check alive list
+                        let w = len(get_players(Role.Werewolf, "alive"))
+                        let g = len(get_players(Role.Villager, "alive")) + len(get_players(Role.Seer, "alive")) + len(get_players(Role.Witch, "alive"))
+                        
+                        if w == 0 {
+                            stop_game("游戏结束: 好人胜利!")
+                        } else {
+                            if w >= g {
+                                stop_game("游戏结束: 狼人胜利!")
+                            }
+                        }
+                    } else {
+                        announce("平票，无人出局")
+                    }
+                }
+            }
+        }
+    }
+
+    phase Night "夜晚" {
+        step "WerewolfStep" {
+            roles: [Werewolf]
+            action: WerewolfAction
+        }
+        step "SeerStep" {
+            roles: [Seer]
+            action: SeerAction
+        }
+        step "WitchStep" {
+            roles: [Witch]
+            action: WitchAction
+        }
+    }
+
+    phase Day "白天" {
+        step "DayStep" {
+            roles: []
+            action: DayAction
+        }
+    }
+}
