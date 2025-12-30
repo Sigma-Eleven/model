@@ -490,10 +490,6 @@ std::unique_ptr<Expression> Parser::parsePrimary()
                     auto call = std::make_unique<CallExpr>(varExpr->name, std::move(args));
                     expr = std::move(call);
                 }
-                else
-                {
-                
-                }
             }
             else
             {
