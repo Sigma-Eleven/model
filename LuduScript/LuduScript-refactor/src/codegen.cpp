@@ -129,12 +129,14 @@ void PythonGenerator::emitHelpers()
     out << "    return game.process_discussion(participants, prompts)\n\n";
 }
 
+//开始开始----
 void PythonGenerator::visit(GameDecl &node)
 {
     className = node.name + "Game";
 
     emitImports();
 
+//枚举角色
     out << "class Role(str, Enum):\n";
     for (const auto &role : node.roles)
     {
@@ -144,14 +146,17 @@ void PythonGenerator::visit(GameDecl &node)
 
     emitHelpers();
 
+//生成所有action类    
     for (const auto &action : node.actions)
     {
         action->accept(*this);
     }
 
+//生成主游戏类
     out << "class " << className << "(Game):\n";
     indentLevel++;
 
+//初始化game 的基类还有dsl里面的全局变量
     indent();
     out << "def __init__(self, players_data, event_emitter=None, input_handler=None):\n";
     indentLevel++;
@@ -175,6 +180,7 @@ void PythonGenerator::visit(GameDecl &node)
     indentLevel--;
     out << "\n";
 
+//游戏流程开始
     indent();
     out << "def _init_phases(self):\n";
     indentLevel++;
@@ -185,6 +191,7 @@ void PythonGenerator::visit(GameDecl &node)
     indentLevel--;
     out << "\n";
 
+//未来适配其他游戏需要更改这里
     indent();
     out << "def check_game_over(self):\n";
     indentLevel++;
@@ -193,6 +200,7 @@ void PythonGenerator::visit(GameDecl &node)
     indentLevel--;
     out << "\n";
 
+//初始化玩家，执行set up语句块
     indent();
     out << "def setup_game(self):\n";
     indentLevel++;
@@ -243,11 +251,12 @@ void PythonGenerator::visit(GameDecl &node)
     indentLevel--;
     out << "\n";
 
-    indentLevel--; 
+    indentLevel--;
 
     out << "Game = " << className << "\n";
 }
 
+//没实现，只有注释
 void PythonGenerator::visit(ConfigDecl &node)
 {
     indent();
@@ -256,6 +265,7 @@ void PythonGenerator::visit(ConfigDecl &node)
     out << "self.announce(f\"Game started with {len(self.players)} players.\")\n";
 }
 
+//上面已经解决喽
 void PythonGenerator::visit(RoleDecl &node)
 {
 }
@@ -328,6 +338,7 @@ void PythonGenerator::visit(StepDecl &node)
     out << ")\n";
 }
 
+//语句节点：dsl逻辑->python语句
 void PythonGenerator::visit(BlockStmt &node)
 {
     if (node.statements.empty())
@@ -411,6 +422,7 @@ void PythonGenerator::visit(ExpressionStmt &node)
     out << "\n";
 }
 
+//表达式节点，包括字面量、变量、二元表达式、一元表达式
 void PythonGenerator::visit(LiteralExpr &node)
 {
     if (node.type == "string")
@@ -419,6 +431,7 @@ void PythonGenerator::visit(LiteralExpr &node)
         out << node.value;
 }
 
+//没有办法实现区分全局或者局部的变量，也没法识别角色标识符
 void PythonGenerator::visit(VariableExpr &node)
 {
     out << node.name;
@@ -445,6 +458,7 @@ void PythonGenerator::visit(UnaryExpr &node)
     node.right->accept(*this);
 }
 
+//映射内联函数
 void PythonGenerator::visit(CallExpr &node)
 {
     if (node.callName == "announce")
@@ -500,6 +514,7 @@ void PythonGenerator::visit(CallExpr &node)
         out << "game." << node.callName << "(";
     }
 
+    //目前解析器不支持命名参数，所以直接打印参数
     for (size_t i = 0; i < node.args.size(); ++i)
     {
         node.args[i]->accept(*this);
@@ -509,6 +524,7 @@ void PythonGenerator::visit(CallExpr &node)
     out << ")";
 }
 
+//表达式节点：dsl->python
 void PythonGenerator::visit(ListExpr &node)
 {
     out << "[";

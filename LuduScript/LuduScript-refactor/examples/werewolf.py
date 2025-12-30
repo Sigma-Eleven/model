@@ -139,6 +139,11 @@ class WitchAction(GameAction):
                 if choice == "Yes":
                     target = dsl_vote(game, witch, get_players(game, None, "alive"))
                     if target != None:
+                        t_role = get_role(game, target)
+                        if t_role == Role.Werewolf:
+                            game.wolf_count = game.wolf_count - 1
+                        else:
+                            game.good_count = game.good_count - 1
                         kill(game, target)
                         game.witch_poison_used = True
                         game.announce("女巫使用了毒药", witch)
@@ -152,36 +157,47 @@ class DayAction(GameAction):
         game = context.game
         if game.killed_player != "":
             game.announce("昨晚 " + game.killed_player + " 死亡")
-            kill(game, game.killed_player)
+            p = game.killed_player
+            p_role = get_role(game, p)
+            if p_role == Role.Werewolf:
+                game.wolf_count = game.wolf_count - 1
+            else:
+                game.good_count = game.good_count - 1
+            kill(game, p)
             game.killed_player = ""
         else:
             game.announce("昨晚是个平安夜")
-        wolves = len(get_players(game, Role.Werewolf, "alive"))
-        villagers = len(get_players(game, Role.Villager, "alive"))
-        seer = len(get_players(game, Role.Seer, "alive"))
-        witch = len(get_players(game, Role.Witch, "alive"))
-        good_count = villagers + seer + witch
-        if wolves == 0:
-            stop_game(game, "游戏结束: 好人胜利!")
+        if game.wolf_count == 0:
+            game.win("Villagers")
         else:
-            if wolves >= good_count:
-                stop_game(game, "游戏结束: 狼人胜利!")
+            if game.wolf_count >= game.good_count:
+                game.win("Werewolves")
             else:
                 alive = get_players(game, None, "alive")
                 dsl_discussion(game, alive)
                 voted_out = dsl_vote(game, alive, alive)
                 if voted_out != None:
                     game.announce(voted_out + " 被投票出局")
-                    kill(game, voted_out)
-                    w = len(get_players(game, Role.Werewolf, "alive"))
-                    g = len(get_players(game, Role.Villager, "alive")) + len(get_players(game, Role.Seer, "alive")) + len(get_players(game, Role.Witch, "alive"))
-                    if w == 0:
-                        stop_game(game, "游戏结束: 好人胜利!")
+                    r = get_role(game, voted_out)
+                    if r == Role.Werewolf:
+                        game.wolf_count = game.wolf_count - 1
                     else:
-                        if w >= g:
-                            stop_game(game, "游戏结束: 狼人胜利!")
+                        game.good_count = game.good_count - 1
+                    kill(game, voted_out)
                 else:
                     game.announce("平票，无人出局")
+
+class CheckWinAction(GameAction):
+    def description(self):
+        return "检查游戏是否满足结束条件"
+
+    def execute(self, context):
+        game = context.game
+        if game.wolf_count == 0:
+            game.win("Villagers")
+        else:
+            if game.wolf_count >= game.good_count:
+                game.win("Werewolves")
 
 class WerewolfGame(Game):
     def __init__(self, players_data, event_emitter=None, input_handler=None):
@@ -189,6 +205,8 @@ class WerewolfGame(Game):
         self.killed_player = ""
         self.witch_save_used = False
         self.witch_poison_used = False
+        self.wolf_count = 0
+        self.good_count = 0
 
     def _init_phases(self):
         Night = GamePhase("夜晚")
@@ -198,10 +216,14 @@ class WerewolfGame(Game):
         Night.add_step(SeerStep)
         WitchStep = GameStep("WitchStep", [Role.Witch], WitchAction())
         Night.add_step(WitchStep)
+        CheckWinNight = GameStep("CheckWinNight", [], CheckWinAction())
+        Night.add_step(CheckWinNight)
         self.phases.append(Night)
         Day = GamePhase("白天")
         DayStep = GameStep("DayStep", [], DayAction())
         Day.add_step(DayStep)
+        CheckWinDay = GameStep("CheckWinDay", [], CheckWinAction())
+        Day.add_step(CheckWinDay)
         self.phases.append(Day)
 
     def check_game_over(self):
@@ -229,10 +251,13 @@ class WerewolfGame(Game):
                 p = shuffled[i]
                 if i == 0:
                     set_data(game, p, "role", Role.Werewolf)
+                    game.wolf_count = game.wolf_count + 1
                 else:
                     if i == 1:
                         set_data(game, p, "role", Role.Werewolf)
+                        game.wolf_count = game.wolf_count + 1
                     else:
+                        game.good_count = game.good_count + 1
                         if i == 2:
                             set_data(game, p, "role", Role.Seer)
                         else:
