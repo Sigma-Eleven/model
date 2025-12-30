@@ -1,0 +1,94 @@
+game SimpleWerewolf {
+    config {
+        min_players: 3
+        max_players: 6
+    }
+
+    // 1. 角色定义
+    role Werewolf "狼人"
+    role Villager "村民"
+
+    // 2. 全局变量 (必须使用 game. 前缀访问)
+    var killed_player: string = ""
+
+    // 3. 游戏初始化
+    setup {
+        let players = get_players(None, "all")
+        let shuffled = shuffle(players)
+        
+        // 简单分配：第一个人是狼人，其他人是村民
+        for (i in [0, 1, 2, 3, 4, 5]) {
+            if (i < len(shuffled)) {
+                let p = shuffled[i]
+                if (i == 0) {
+                    set_data(p, "role", Role.Werewolf)
+                } else {
+                    set_data(p, "role", Role.Villager)
+                }
+            }
+        }
+        announce("游戏开始，身份已秘密分配")
+    }
+
+    // 4. 行动定义
+    action WolfAction "狼人杀人" {
+        description: "狼人选择一名目标"
+        execute {
+            let wolves = get_players(Role.Werewolf, "alive")
+            let target = vote(wolves, get_players(None, "alive"))
+            if target != None {
+                game.killed_player = target // 注意 game. 前缀
+                announce("狼人已选定目标", wolves)
+            }
+        }
+    }
+
+    action DayAction "白天结算" {
+        description: "公布死讯并进行公投"
+        execute {
+            if game.killed_player != "" {
+                announce("昨晚死亡的玩家是: " + game.killed_player)
+                kill(game.killed_player)
+                game.killed_player = ""
+            } else {
+                announce("昨晚是个平安夜")
+            }
+
+            // 胜负判定
+            let w_count = len(get_players(Role.Werewolf, "alive"))
+            let v_count = len(get_players(Role.Villager, "alive"))
+
+            if w_count == 0 {
+                stop_game("好人胜利！")
+            } else {
+                if w_count >= v_count {
+                    stop_game("狼人胜利！")
+                } else {
+                    // 讨论与投票
+                    let alive = get_players(None, "alive")
+                    discussion(alive)
+                    let voted = vote(alive, alive)
+                    if voted != None {
+                        announce(voted + " 被投票处决")
+                        kill(voted)
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. 流程定义
+    phase Night "夜晚阶段" {
+        step "WolfKill" {
+            roles: [Werewolf]
+            action: WolfAction
+        }
+    }
+
+    phase Day "白天阶段" {
+        step "PublicVote" {
+            roles: [] // 空列表表示全员
+            action: DayAction
+        }
+    }
+}
