@@ -12,7 +12,6 @@ public:
     PythonGenerator(std::ostream &out);
     void generate(GameDecl &game);
 
-    // Visitor Methods
     void visit(LiteralExpr &node) override;
     void visit(VariableExpr &node) override;
     void visit(BinaryExpr &node) override;

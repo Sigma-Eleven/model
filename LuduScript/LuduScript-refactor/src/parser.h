@@ -20,6 +20,7 @@ private:
     Token advance();
     bool check(TokenType type) const;
     bool match(TokenType type);
+    // 消费一个指定类型的token，如果类型不匹配则报错
     Token consume(TokenType type, const std::string& message);
     void error(const Token& token, const std::string& message);
 

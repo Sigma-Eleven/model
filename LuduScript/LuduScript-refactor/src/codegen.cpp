@@ -135,7 +135,6 @@ void PythonGenerator::visit(GameDecl &node)
 
     emitImports();
 
-    // Enum for Roles
     out << "class Role(str, Enum):\n";
     for (const auto &role : node.roles)
     {
@@ -145,31 +144,27 @@ void PythonGenerator::visit(GameDecl &node)
 
     emitHelpers();
 
-    // Generate Actions
     for (const auto &action : node.actions)
     {
         action->accept(*this);
     }
 
-    // Generate Game Class
     out << "class " << className << "(Game):\n";
     indentLevel++;
 
-    // __init__
     indent();
     out << "def __init__(self, players_data, event_emitter=None, input_handler=None):\n";
     indentLevel++;
     indent();
     out << "super().__init__(\"" << node.name << "\", players_data, event_emitter, input_handler)\n";
 
-    // Global Vars Initialization
     for (const auto &var : node.vars)
     {
         indent();
         out << "self." << var->name << " = ";
-        if (var->initializer)
+        if (var->initial)
         {
-            var->initializer->accept(*this);
+            var->initial->accept(*this);
         }
         else
         {
@@ -180,7 +175,6 @@ void PythonGenerator::visit(GameDecl &node)
     indentLevel--;
     out << "\n";
 
-    // _init_phases
     indent();
     out << "def _init_phases(self):\n";
     indentLevel++;
@@ -191,7 +185,6 @@ void PythonGenerator::visit(GameDecl &node)
     indentLevel--;
     out << "\n";
 
-    // check_game_over (stub)
     indent();
     out << "def check_game_over(self):\n";
     indentLevel++;
@@ -200,7 +193,6 @@ void PythonGenerator::visit(GameDecl &node)
     indentLevel--;
     out << "\n";
 
-    // setup_game
     indent();
     out << "def setup_game(self):\n";
     indentLevel++;
@@ -251,15 +243,13 @@ void PythonGenerator::visit(GameDecl &node)
     indentLevel--;
     out << "\n";
 
-    indentLevel--; // End class
+    indentLevel--; 
 
-    // Export Game alias for loader
     out << "Game = " << className << "\n";
 }
 
 void PythonGenerator::visit(ConfigDecl &node)
 {
-    // Basic setup implementation
     indent();
     out << "# Config: min=" << node.minPlayers << ", max=" << node.maxPlayers << "\n";
     indent();
@@ -268,12 +258,10 @@ void PythonGenerator::visit(ConfigDecl &node)
 
 void PythonGenerator::visit(RoleDecl &node)
 {
-    // Handled in GameDecl
 }
 
 void PythonGenerator::visit(VarDecl &node)
 {
-    // Handled in GameDecl __init__
 }
 
 void PythonGenerator::visit(ActionDecl &node)
@@ -327,7 +315,6 @@ void PythonGenerator::visit(StepDecl &node)
     indent();
     out << node.name << " = GameStep(\"" << node.name << "\", ";
 
-    // Roles list
     out << "[";
     for (size_t i = 0; i < node.roles.size(); ++i)
     {
@@ -337,7 +324,6 @@ void PythonGenerator::visit(StepDecl &node)
     }
     out << "], ";
 
-    // Action
     out << node.actionName << "()";
     out << ")\n";
 }
@@ -360,8 +346,8 @@ void PythonGenerator::visit(LetStmt &node)
 {
     indent();
     out << node.name << " = ";
-    if (node.initializer)
-        node.initializer->accept(*this);
+    if (node.initial)
+        node.initial->accept(*this);
     else
         out << "None";
     out << "\n";
@@ -435,21 +421,6 @@ void PythonGenerator::visit(LiteralExpr &node)
 
 void PythonGenerator::visit(VariableExpr &node)
 {
-    // Check if it's a known global var to prefix with 'game.'?
-    // For now, assume users use 'game.var' explicitly for globals,
-    // and plain names for locals.
-    // However, for Roles (e.g. 'Werewolf'), we should map to Role.Werewolf
-    // We can do a quick hack or leave it to the user to write Role.Werewolf?
-    // The DSL spec said 'role=Werewolf'. So we should map identifiers that match roles to Role.X
-    // But I don't have the role list easily accessible here without passing context down.
-    // For simplicity, I will just output the name. User might need to write 'Role.Werewolf' or I handle it in semantic analysis.
-    // Let's assume the user writes 'Werewolf' and we map it if it looks like a Role?
-    // Or just output it. If it's undefined in Python, it's an error.
-    // To support `get_players(role=Werewolf)`, Python needs `Werewolf` variable defined or use `Role.Werewolf`.
-    // I'll assume I should output it as is, and maybe define global aliases or rely on `Role.Werewolf`.
-    // Let's assume the user writes `Role.Werewolf` in DSL or I map it.
-    // Update: In DSL I wrote `role=Werewolf`. In generated code `Role.Werewolf` is needed.
-    // I'll stick to raw output for now.
     out << node.name;
 }
 
@@ -476,67 +447,61 @@ void PythonGenerator::visit(UnaryExpr &node)
 
 void PythonGenerator::visit(CallExpr &node)
 {
-    // Special handling for DSL built-ins
-    if (node.callee == "announce")
+    if (node.callName == "announce")
     {
         out << "game.announce(";
     }
-    else if (node.callee == "get_players")
+    else if (node.callName == "get_players")
     {
         out << "get_players(game, ";
     }
-    else if (node.callee == "get_role")
+    else if (node.callName == "get_role")
     {
         out << "get_role(game, ";
     }
-    else if (node.callee == "kill")
+    else if (node.callName == "kill")
     {
         out << "kill(game, ";
     }
-    else if (node.callee == "stop_game")
+    else if (node.callName == "stop_game")
     {
         out << "stop_game(game, ";
     }
-    else if (node.callee == "set_data")
+    else if (node.callName == "set_data")
     {
         out << "set_data(game, ";
     }
-    else if (node.callee == "get_data")
+    else if (node.callName == "get_data")
     {
         out << "get_data(game, ";
     }
-    else if (node.callee == "shuffle")
+    else if (node.callName == "shuffle")
     {
         out << "shuffle(game, ";
     }
-    else if (node.callee == "len")
+    else if (node.callName == "len")
     {
         out << "len(";
     }
-    else if (node.callee == "vote")
+    else if (node.callName == "vote")
     {
         out << "dsl_vote(game, ";
     }
-    else if (node.callee == "discussion")
+    else if (node.callName == "discussion")
     {
         out << "dsl_discussion(game, ";
     }
-    else if (node.callee == "announce")
+    else if (node.callName == "announce")
     {
         out << "game.announce(";
     }
     else
     {
-        out << "game." << node.callee << "(";
+        out << "game." << node.callName << "(";
     }
 
     for (size_t i = 0; i < node.args.size(); ++i)
     {
-        // Handle named args hack (AssignExpr inside Call args? Not supported by parser yet)
-        // Parser supports expressions.
-        // If I want `role=Werewolf`, I need `AssignExpr` as expression?
-        // My parser `AssignStmt` is a statement.
-        // I'll just print args.
         node.args[i]->accept(*this);
         if (i < node.args.size() - 1)
             out << ", ";

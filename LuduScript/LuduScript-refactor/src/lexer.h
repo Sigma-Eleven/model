@@ -82,12 +82,15 @@ private:
     int line = 1;
     int column = 1;
 
-    char peek(int offset = 0) const;
+    char peek(int set = 0) const;
     char advance();
     bool match(char expected);
     void skipWhitespace();
 
+    //解析字符串字面量
     Token stringLiteral();
+    //解析数字字面量
     Token numberLiteral();
+    //解析标识符或关键字
     Token identifierOrKeyword();
 };

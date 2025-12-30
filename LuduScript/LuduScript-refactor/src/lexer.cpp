@@ -2,73 +2,98 @@
 #include <unordered_map>
 #include <cctype>
 
-Lexer::Lexer(const std::string& source) : source(source) {}
+Lexer::Lexer(const std::string &source) : source(source) {}
 
-char Lexer::peek(int offset) const {
-    if (pos + offset >= source.length()) return '\0';
-    return source[pos + offset];
+char Lexer::peek(int set) const
+{
+    if (pos + set >= source.length())
+        return '\0';
+    return source[pos + set];
 }
 
-char Lexer::advance() {
-    if (pos >= source.length()) return '\0';
+char Lexer::advance()
+{
+    if (pos >= source.length())
+        return '\0';
     char c = source[pos];
     pos++;
     column++;
-    if (c == '\n') {
+    if (c == '\n')
+    {
         line++;
         column = 1;
     }
     return c;
 }
 
-bool Lexer::match(char expected) {
-    if (peek() == expected) {
+bool Lexer::match(char expected)
+{
+    if (peek() == expected)
+    {
         advance();
         return true;
     }
     return false;
 }
 
-void Lexer::skipWhitespace() {
-    while (true) {
+void Lexer::skipWhitespace()
+{
+    while (true)
+    {
         char c = peek();
-        if (isspace(c)) {
+        if (isspace(c))
+        {
             advance();
-        } else if (c == '/' && peek(1) == '/') {
-            // Comment
-            while (peek() != '\n' && peek() != '\0') {
+        }
+        else if (c == '/' && peek(1) == '/')
+        {
+            while (peek() != '\n' && peek() != '\0')
+            {
                 advance();
             }
-        } else {
+        }
+        else
+        {
             break;
         }
     }
 }
 
-Token Lexer::stringLiteral() {
-    int startCol = column;
-    advance(); // Skip "
+// 解析字符串字面量
+Token Lexer::stringLiteral()
+{
+    int start = column;
+    advance();
+
     std::string value;
-    while (peek() != '"' && peek() != '\0') {
+    while (peek() != '"' && peek() != '\0')
+    {
         value += advance();
     }
-    if (peek() == '"') advance();
-    return {TokenType::STRING, value, line, startCol};
+    if (peek() == '"')
+        advance();
+    return {TokenType::STRING, value, line, start};
 }
 
-Token Lexer::numberLiteral() {
-    int startCol = column;
+// 解析数字字面量
+Token Lexer::numberLiteral()
+{
+    int start = column;
     std::string value;
-    while (isdigit(peek())) {
+    while (isdigit(peek()))
+    {
         value += advance();
     }
-    return {TokenType::NUMBER, value, line, startCol};
+    return {TokenType::NUMBER, value, line, start};
 }
 
-Token Lexer::identifierOrKeyword() {
-    int startCol = column;
+// 解析标识符或关键字
+Token Lexer::identifierOrKeyword()
+{
+    int start = column;
     std::string text;
-    while (isalnum(peek()) || peek() == '_') {
+    while (isalnum(peek()) || peek() == '_')
+    {
         text += advance();
     }
 
@@ -83,6 +108,7 @@ Token Lexer::identifierOrKeyword() {
         {"execute", TokenType::KW_EXECUTE},
         {"setup", TokenType::KW_SETUP},
         {"let", TokenType::KW_LET},
+
         {"if", TokenType::KW_IF},
         {"else", TokenType::KW_ELSE},
         {"for", TokenType::KW_FOR},
@@ -92,67 +118,127 @@ Token Lexer::identifierOrKeyword() {
         {"false", TokenType::KW_FALSE},
         {"null", TokenType::KW_NULL},
         {"and", TokenType::KW_AND},
-        {"or", TokenType::KW_OR},
-        {"not", TokenType::KW_NOT}
-    };
 
-    if (keywords.count(text)) {
-        return {keywords[text], text, line, startCol};
+        {"or", TokenType::KW_OR},
+        {"not", TokenType::KW_NOT}};
+
+    if (keywords.count(text))
+    {
+        return {keywords[text], text, line, start};
     }
-    return {TokenType::IDENTIFIER, text, line, startCol};
+    return {TokenType::IDENTIFIER, text, line, start};
 }
 
-std::vector<Token> Lexer::tokenize() {
+std::vector<Token> Lexer::tokenize()
+{
     std::vector<Token> tokens;
-    while (pos < source.length()) {
+    while (pos < source.length())
+    {
         skipWhitespace();
-        if (pos >= source.length()) break;
+        if (pos >= source.length())
+            break;
 
         char c = peek();
-        int startCol = column;
+        int start = column;
 
-        if (isalpha(c) || c == '_') {
+        // 解析标识符或关键字
+        if (isalpha(c) || c == '_')
+        {
             tokens.push_back(identifierOrKeyword());
-        } else if (isdigit(c)) {
+        }
+        // 解析数字字面量
+        else if (isdigit(c))
+        {
             tokens.push_back(numberLiteral());
-        } else if (c == '"') {
+        }
+        // 解析字符串字面量
+        else if (c == '"')
+        {
             tokens.push_back(stringLiteral());
-        } else {
+        }
+        else
+        {
             TokenType type = TokenType::UNKNOWN;
             std::string text(1, c);
             advance();
 
-            switch (c) {
-                case '{': type = TokenType::LBRACE; break;
-                case '}': type = TokenType::RBRACE; break;
-                case '(': type = TokenType::LPAREN; break;
-                case ')': type = TokenType::RPAREN; break;
-                case '[': type = TokenType::LBRACKET; break;
-                case ']': type = TokenType::RBRACKET; break;
-                case ':': type = TokenType::COLON; break;
-                case ',': type = TokenType::COMMA; break;
-                case '.': type = TokenType::DOT; break;
-                case '+': type = TokenType::PLUS; break;
-                case '-': type = TokenType::MINUS; break;
-                case '*': type = TokenType::STAR; break;
-                case '/': type = TokenType::SLASH; break;
-                case '=': 
-                    if (match('=')) { type = TokenType::EQ; text = "=="; }
-                    else type = TokenType::ASSIGN;
-                    break;
-                case '!':
-                    if (match('=')) { type = TokenType::NEQ; text = "!="; }
-                    break;
-                case '<':
-                    if (match('=')) { type = TokenType::LE; text = "<="; }
-                    else type = TokenType::LT;
-                    break;
-                case '>':
-                    if (match('=')) { type = TokenType::GE; text = ">="; }
-                    else type = TokenType::GT;
-                    break;
+            switch (c)
+            {
+            case '{':
+                type = TokenType::LBRACE;
+                break;
+            case '}':
+                type = TokenType::RBRACE;
+                break;
+            case '(':
+                type = TokenType::LPAREN;
+                break;
+            case ')':
+                type = TokenType::RPAREN;
+                break;
+            case '[':
+                type = TokenType::LBRACKET;
+                break;
+            case ']':
+                type = TokenType::RBRACKET;
+                break;
+            case ':':
+                type = TokenType::COLON;
+                break;
+            case ',':
+                type = TokenType::COMMA;
+                break;
+            case '.':
+                type = TokenType::DOT;
+                break;
+            case '+':
+                type = TokenType::PLUS;
+                break;
+            case '-':
+                type = TokenType::MINUS;
+                break;
+            case '*':
+                type = TokenType::STAR;
+                break;
+            case '/':
+                type = TokenType::SLASH;
+                break;
+            case '=':
+                if (match('='))
+                {
+                    type = TokenType::EQ;
+                    text = "==";
+                }
+                else
+                    type = TokenType::ASSIGN;
+                break;
+            case '!':
+                if (match('='))
+                {
+                    type = TokenType::NEQ;
+                    text = "!=";
+                }
+                break;
+            case '<':
+                if (match('='))
+                {
+                    type = TokenType::LE;
+                    text = "<=";
+                }
+                else
+                    type = TokenType::LT;
+                break;
+            case '>':
+                if (match('='))
+                {
+                    type = TokenType::GE;
+                    text = ">=";
+                }
+                else
+                    type = TokenType::GT;
+                break;
             }
-            tokens.push_back({type, text, line, startCol});
+            tokens.push_back({type, text, line, start});
         }
     }
     tokens.push_back({TokenType::EOF_TOKEN, "", line, column});

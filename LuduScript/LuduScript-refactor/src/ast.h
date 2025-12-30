@@ -14,10 +14,12 @@ public:
     virtual void accept(ASTVisitor &visitor) = 0;
 };
 
+// 表达式节点
 class Expression : public Node
 {
 };
 
+// 字面量表达式节点
 class LiteralExpr : public Expression
 {
 public:
@@ -28,6 +30,7 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 变量表达式节点
 class VariableExpr : public Expression
 {
 public:
@@ -36,6 +39,7 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 二元表达式节点
 class BinaryExpr : public Expression
 {
 public:
@@ -48,6 +52,7 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 一元表达式节点
 class UnaryExpr : public Expression
 {
 public:
@@ -58,17 +63,19 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 调用表达式节点
 class CallExpr : public Expression
 {
 public:
-    std::string callee;
+    std::string callName;
     std::vector<std::unique_ptr<Expression>> args;
 
     CallExpr(std::string c, std::vector<std::unique_ptr<Expression>> a)
-        : callee(c), args(std::move(a)) {}
+        : callName(c), args(std::move(a)) {}
     void accept(ASTVisitor &visitor) override;
 };
 
+// 列表表达式节点
 class ListExpr : public Expression
 {
 public:
@@ -77,6 +84,7 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 成员表达式节点
 class MemberExpr : public Expression
 {
 public:
@@ -88,6 +96,7 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 索引表达式节点
 class IndexExpr : public Expression
 {
 public:
@@ -99,10 +108,12 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 语句节点
 class Statement : public Node
 {
 };
 
+// 代码块语句节点
 class BlockStmt : public Statement
 {
 public:
@@ -110,17 +121,19 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 变量声明语句节点
 class LetStmt : public Statement
 {
 public:
     std::string name;
-    std::unique_ptr<Expression> initializer;
+    std::unique_ptr<Expression> initial;
 
     LetStmt(std::string n, std::unique_ptr<Expression> init)
-        : name(n), initializer(std::move(init)) {}
+        : name(n), initial(std::move(init)) {}
     void accept(ASTVisitor &visitor) override;
 };
 
+// 赋值语句节点
 class AssignStmt : public Statement
 {
 public:
@@ -132,6 +145,7 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 条件语句节点
 class IfStmt : public Statement
 {
 public:
@@ -139,11 +153,12 @@ public:
     std::unique_ptr<Statement> thenBranch;
     std::unique_ptr<Statement> elseBranch; 
 
-    IfStmt(std::unique_ptr<Expression> cond, std::unique_ptr<Statement> thenB, std::unique_ptr<Statement> elseB = nullptr)
-        : condition(std::move(cond)), thenBranch(std::move(thenB)), elseBranch(std::move(elseB)) {}
+    IfStmt(std::unique_ptr<Expression> cond, std::unique_ptr<Statement> then, std::unique_ptr<Statement> elseBranch = nullptr)
+        : condition(std::move(cond)), thenBranch(std::move(then)), elseBranch(std::move(elseBranch)) {}
     void accept(ASTVisitor &visitor) override;
 };
 
+// 循环语句节点
 class ForStmt : public Statement
 {
 public:
@@ -156,6 +171,7 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 返回语句节点
 class ReturnStmt : public Statement
 {
 public:
@@ -164,6 +180,7 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 表达式语句节点
 class ExpressionStmt : public Statement
 {
 public:
@@ -172,6 +189,7 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 角色声明节点
 class RoleDecl : public Node
 {
 public:
@@ -182,18 +200,20 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 变量声明节点
 class VarDecl : public Node
 {
 public:
     std::string name;
     std::string type;
-    std::unique_ptr<Expression> initializer;
+    std::unique_ptr<Expression> initial;
 
     VarDecl(std::string n, std::string t, std::unique_ptr<Expression> init)
-        : name(n), type(t), initializer(std::move(init)) {}
+        : name(n), type(t), initial(std::move(init)) {}
     void accept(ASTVisitor &visitor) override;
 };
 
+// 操作声明节点
 class ActionDecl : public Node
 {
 public:
@@ -206,6 +226,7 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 步骤声明节点
 class StepDecl : public Node
 {
 public:
@@ -217,6 +238,7 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 阶段声明节点
 class PhaseDecl : public Node
 {
 public:
@@ -228,6 +250,7 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 游戏配置声明节点
 class ConfigDecl : public Node
 {
 public:
@@ -236,6 +259,7 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// 游戏声明节点
 class GameDecl : public Node
 {
 public:
@@ -251,6 +275,7 @@ public:
     void accept(ASTVisitor &visitor) override;
 };
 
+// AST访问者接口
 class ASTVisitor
 {
 public:
@@ -280,6 +305,7 @@ public:
     virtual void visit(GameDecl &node) = 0;
 };
 
+// 表达式节点的访问方法
 inline void LiteralExpr::accept(ASTVisitor &v) { v.visit(*this); }
 inline void VariableExpr::accept(ASTVisitor &v) { v.visit(*this); }
 inline void BinaryExpr::accept(ASTVisitor &v) { v.visit(*this); }

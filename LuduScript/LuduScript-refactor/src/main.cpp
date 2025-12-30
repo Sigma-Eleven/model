@@ -28,22 +28,14 @@ int main(int argc, char *argv[])
     buffer << file.rdbuf();
     std::string source = buffer.str();
 
-    // 1. Lexing
     Lexer lexer(source);
     std::vector<Token> tokens = lexer.tokenize();
 
-    // Debug tokens
-    // for (const auto& t : tokens) {
-    //     std::cout << t.toString() << std::endl;
-    // }
-
-    // 2. Parsing
     try
     {
         Parser parser(tokens);
         auto gameDecl = parser.parse();
 
-        // 3. Code Generation
         std::string outputPath = inputPath.substr(0, inputPath.find_last_of('.')) + ".py";
         std::ofstream outFile(outputPath);
 
