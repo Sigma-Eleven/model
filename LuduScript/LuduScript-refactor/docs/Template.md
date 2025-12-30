@@ -1,7 +1,5 @@
 # LuduScript-refactor 语法规范手册
 
-本规范详细定义了 `LuduScript-refactor` 版本的语法结构，开发者应遵循此规范编写游戏脚本。
-
 ---
 
 ## 1. 顶层结构 (Top-level Structure)
